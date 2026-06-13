@@ -1,0 +1,46 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="container">
+  <header>
+    <h1>feed-curator</h1>
+    <nav>
+      <a href="/">全部</a>
+      <a href="/?sort=score">按评分</a>
+      <a href="/sources">源管理</a>
+      <a href="/settings">偏好</a>
+    </nav>
+  </header>
+
+  <h2 style="margin-bottom:16px">偏好设置</h2>
+
+  <div style="background:#fff;padding:24px;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.08);margin-bottom:24px">
+    <p style="color:#666;margin-bottom:12px;font-size:0.9rem">
+      用一段自然语言描述你想看什么、不想看什么。这段描述会拼接到 AI 评分的 prompt 里，影响打分结果。<br>
+      另外，你<strong>收藏</strong>的文章和你给 <strong>1-2 星</strong>的文章会作为 few-shot 示例自动注入。
+    </p>
+    <form method="POST" action="/settings/save">
+      <textarea name="text" rows="10" style="width:100%;padding:12px;border:1px solid #ddd;border-radius:6px;font-family:inherit;font-size:0.9rem;line-height:1.6" placeholder="例如：我关注 AI/独立开发/创业/产品。喜欢有数据、有案例、有方法论的实战文章。不喜欢鸡汤、营销号、标题党、纯情绪文。技术文章偏好工程实践和真实踩坑，不要纯介绍。">{{ preferences }}</textarea>
+      <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
+        <button type="submit" style="padding:8px 20px;background:#1a73e8;color:#fff;border:none;border-radius:4px;cursor:pointer">保存偏好</button>
+        <span style="color:#888;font-size:0.85rem">保存后下一轮 AI 评分会使用新偏好</span>
+      </div>
+    </form>
+  </div>
+
+  <div style="background:#fff;padding:24px;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.08)">
+    <h3 style="margin-bottom:12px;font-size:1rem">评分维护操作</h3>
+    <div style="display:flex;gap:12px;flex-wrap:wrap">
+      <form method="POST" action="/settings/reset-failed">
+        <button type="submit" style="padding:6px 14px;background:#fff;color:#333;border:1px solid #ddd;border-radius:4px;cursor:pointer">重置评分失败的文章</button>
+      </form>
+      <form method="POST" action="/settings/rescore-all" onsubmit="return confirm('清空全部评分？下轮调度会全部重评。');">
+        <button type="submit" style="padding:6px 14px;background:#fff;color:#c62828;border:1px solid #ddd;border-radius:4px;cursor:pointer">全部重新评分</button>
+      </form>
+    </div>
+    <p style="color:#888;font-size:0.8rem;margin-top:10px">
+      "重置失败"：把分数=-1 的清空让下轮重试。<br>
+      "全部重评"：清空所有分数，让 AI 用新偏好/示例重新打分（要消耗 token）。
+    </p>
+  </div>
+</div>
+{% endblock %}

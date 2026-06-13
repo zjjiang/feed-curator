@@ -1,0 +1,63 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="container">
+  <header>
+    <h1>feed-curator</h1>
+    <nav>
+      <a href="/">全部</a>
+      <a href="/?sort=score">按评分</a>
+      <a href="/sources">源管理</a>
+      <a href="/settings">偏好</a>
+    </nav>
+  </header>
+
+  <div class="filters">
+    <select onchange="location.href='/?source_id='+this.value+'&sort={{ sort }}'">
+      <option value="">全部源</option>
+      {% for s in sources %}
+      <option value="{{ s.id }}" {% if source_id == s.id %}selected{% endif %}>{{ s.name }} ({{ s.type }})</option>
+      {% endfor %}
+    </select>
+    <span class="stats">共 {{ total }} 篇{% if source_id %}（已筛选）{% endif %}</span>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th style="width:4%">分</th>
+        <th style="width:40%">标题</th>
+        <th>源</th>
+        <th>字数</th>
+        <th>发布时间</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in items %}
+      <tr{% if item.is_read %} style="opacity:0.5"{% endif %}>
+        <td>{% if item.ai_score and item.ai_score > 0 %}<span style="font-weight:600;color:{% if item.ai_score >= 8 %}#2e7d32{% elif item.ai_score >= 6 %}#f57c00{% else %}#999{% endif %}">{{ item.ai_score|int }}</span>{% else %}<span style="color:#ccc">-</span>{% endif %}</td>
+        <td class="title-cell"><a href="{{ item.url }}" target="_blank" onclick="markRead({{ item.id }})">{{ item.title }}</a>{% if item.ai_summary %}<br><span style="font-size:0.75rem;color:#888">{{ item.ai_summary }}</span>{% endif %}</td>
+        <td><span class="source-badge {{ item.source_type }}">{{ item.source_name }}</span></td>
+        <td class="word-cell">{{ item.word_count or 0 }}</td>
+        <td class="time-cell">{{ item.published_at_fmt }}</td>
+        <td style="white-space:nowrap">
+          <span class="action-btn {% if item.is_favorite %}active{% endif %}" onclick="toggleFav({{ item.id }},this)" title="收藏">{% if item.is_favorite %}★{% else %}☆{% endif %}</span>
+          <span class="expand-btn" onclick="toggleDesc({{ item.id }})">...</span>
+        </td>
+      </tr>
+      <tr id="desc-{{ item.id }}" class="desc-row" style="display:none">
+        <td colspan="6">{{ item.preview }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {% if total_pages > 1 %}
+  <div class="pagination">
+    {% for p in range(1, total_pages + 1) %}
+    <a href="/?page={{ p }}{% if source_id %}&source_id={{ source_id }}{% endif %}&sort={{ sort }}" class="{% if p == page %}active{% endif %}">{{ p }}</a>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

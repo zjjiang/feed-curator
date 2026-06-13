@@ -1,0 +1,18 @@
+[project]
+name = "feed-curator"
+version = "0.1.0"
+requires-python = ">=3.14"
+dependencies = [
+    "apscheduler>=3.11.2",
+    "beautifulsoup4>=4.14.3",
+    "fastapi>=0.136.3",
+    "feedparser>=6.0.12",
+    "httpx>=0.28.1",
+    "jinja2>=3.1.6",
+    "lxml>=6.1.1",
+    "pydantic>=2.13.4",
+    "python-multipart>=0.0.30",
+    "pyyaml>=6.0.3",
+    "sqlalchemy>=2.0.50",
+    "uvicorn[standard]>=0.48.0",
+]

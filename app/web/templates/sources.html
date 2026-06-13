@@ -1,0 +1,66 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="container">
+  <header>
+    <h1>feed-curator</h1>
+    <nav>
+      <a href="/">文章</a>
+      <a href="/sources">源管理</a>
+      <a href="/settings">偏好</a>
+    </nav>
+  </header>
+
+  <h2 style="margin-bottom:16px">订阅源管理</h2>
+
+  <table>
+    <thead>
+      <tr>
+        <th>名称</th>
+        <th>类型</th>
+        <th>间隔(分)</th>
+        <th>上次抓取</th>
+        <th>状态</th>
+        <th>操作</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in sources %}
+      <tr>
+        <td>{{ s.name }}</td>
+        <td><span class="source-badge {{ s.type }}">{{ s.type }}</span></td>
+        <td>{{ s.fetch_interval_min }}</td>
+        <td class="time-cell">{{ s.last_fetched_fmt }}</td>
+        <td>{% if s.last_error %}<span style="color:#c62828">{{ s.last_error[:40] }}</span>{% else %}<span style="color:#2e7d32">正常</span>{% endif %}</td>
+        <td><a href="/sources/{{ s.id }}/fetch" style="color:#1a73e8;text-decoration:none">立即抓取</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <div style="margin-top:24px;padding:20px;background:#fff;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.08)">
+    <h3 style="margin-bottom:12px">添加新源</h3>
+    <form method="POST" action="/sources/add" style="display:flex;flex-wrap:wrap;gap:10px;align-items:end">
+      <div>
+        <label style="font-size:0.8rem;color:#666">类型</label><br>
+        <select name="type" style="padding:6px 10px;border:1px solid #ddd;border-radius:4px">
+          <option value="rss">RSS</option>
+          <option value="wechat">微信公众号</option>
+        </select>
+      </div>
+      <div>
+        <label style="font-size:0.8rem;color:#666">名称</label><br>
+        <input name="name" placeholder="显示名" style="padding:6px 10px;border:1px solid #ddd;border-radius:4px;width:160px" required>
+      </div>
+      <div>
+        <label style="font-size:0.8rem;color:#666">RSS URL 或 mp_id</label><br>
+        <input name="config_value" placeholder="https://... 或 MP_WXS_xxx" style="padding:6px 10px;border:1px solid #ddd;border-radius:4px;width:300px" required>
+      </div>
+      <div>
+        <label style="font-size:0.8rem;color:#666">间隔(分)</label><br>
+        <input name="interval" type="number" value="30" style="padding:6px 10px;border:1px solid #ddd;border-radius:4px;width:60px">
+      </div>
+      <button type="submit" style="padding:8px 16px;background:#1a73e8;color:#fff;border:none;border-radius:4px;cursor:pointer">添加</button>
+    </form>
+  </div>
+</div>
+{% endblock %}
