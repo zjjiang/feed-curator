@@ -7,17 +7,21 @@
 - search_wechat    ：搜索微信公众号，返回候选列表
 - subscribe_wechat ：按 fakeid 订阅公众号并建源（自动串 we-mp-rss → feed-curator）
 - list_sources     ：列出现有源（便于去重/确认）
+- recommend_articles：按时间窗口推荐评分最高的几篇文章
 
 安全说明：/mcp 与现有 JSON API 一样无鉴权，监听同一端口。本地自用场景可接受；
 若部署到不可信网络，应在反向代理或此处补 token 校验，或将服务绑回 127.0.0.1。
 """
+
+import json
+import time
 
 import feedparser
 from mcp.server.fastmcp import FastMCP
 
 from app.db import SessionLocal
 from app.jobs.fetcher import fetch_source
-from app.models import Source
+from app.models import Item, Source
 from app.services import source_service
 from app.services.wewe_client import WeweClient, WeweError
 
@@ -63,7 +67,7 @@ def add_rss(name: str, feed_url: str, interval_min: int = 30) -> dict:
     db = SessionLocal()
     try:
         src = source_service.create_rss_source(db, name.strip(), feed_url.strip(), interval_min)
-        inserted, err = fetch_source(db, src)
+        inserted, err = fetch_source(db, src, trigger="manual")
         return {
             "ok": True,
             "source_id": src.id,
@@ -139,7 +143,7 @@ def subscribe_wechat(mp_name: str, fakeid: str, interval_min: int = 60) -> dict:
         src = source_service.create_wechat_source(
             db, mp_name.strip(), mp_id, interval_min, wewe_base_url=_wewe.base_url
         )
-        inserted, err = fetch_source(db, src)
+        inserted, err = fetch_source(db, src, trigger="manual")
         return {
             "ok": True,
             "source_id": src.id,
@@ -182,3 +186,106 @@ def list_sources() -> dict:
         }
     finally:
         db.close()
+
+
+@mcp.tool()
+def recommend_articles(
+    days: int = 7,
+    limit: int = 5,
+    min_score: int = 4,
+    category: str | None = None,
+) -> dict:
+    """推荐最近一段时间内 AI 评分最高的几篇文章。
+
+    按文章发布时间筛选时间窗口，只在已评分（ai_score 1-5）的文章里挑，
+    按星级降序、同星级取较新的。适合"给我看看这周最值得读的几篇"这类请求。
+
+    Args:
+        days: 时间窗口，往前回溯的天数（按发布时间），默认 7。
+        limit: 返回篇数上限，默认 5，最多 50。
+        min_score: 最低星级门槛（1-5），默认 4（即只推 4-5 星）。
+        category: 可选，限定某个分类名（精确匹配分类标签）。
+
+    Returns:
+        包含 articles 列表的字典，每项有 title/url/score/summary/keypoints/
+        tags/source/published_at。另含 window（时间窗口描述）和 count。
+        若窗口内没有达标文章，articles 为空并在 note 里说明。
+    """
+    if days < 1:
+        return {"ok": False, "error": "days 必须 >= 1"}
+    if not (1 <= min_score <= 5):
+        return {"ok": False, "error": "min_score 必须在 1-5 之间"}
+    limit = max(1, min(limit, 50))
+
+    now = int(time.time())
+    since = now - days * 86400
+
+    db = SessionLocal()
+    try:
+        source_map = {s.id: s.name for s in db.query(Source).all()}
+
+        q = (
+            db.query(Item)
+            .filter(Item.ai_score >= min_score)  # >= min_score 隐含排除 NULL 和 -1
+            .filter(Item.published_at.isnot(None))
+            .filter(Item.published_at >= since)
+        )
+        if category:
+            # ai_tags 是 JSON 数组字符串，带引号包裹避免子串误匹配
+            q = q.filter(Item.ai_tags.like(f'%"{category}"%'))
+
+        rows = (
+            q.order_by(Item.ai_score.desc(), Item.published_at.desc())
+            .limit(limit)
+            .all()
+        )
+
+        articles = []
+        for i in rows:
+            articles.append({
+                "title": i.title,
+                "url": i.url,
+                "score": i.ai_score,
+                "summary": i.ai_summary or "",
+                "keypoints": json.loads(i.ai_keypoints) if i.ai_keypoints else [],
+                "tags": json.loads(i.ai_tags) if i.ai_tags else [],
+                "source": source_map.get(i.source_id, "?"),
+                "published_at": _fmt_epoch(i.published_at),
+            })
+
+        result = {
+            "ok": True,
+            "window": f"最近 {days} 天（发布时间）",
+            "min_score": min_score,
+            "category": category,
+            "count": len(articles),
+            "articles": articles,
+        }
+        if not articles:
+            # 区分两种空结果：是没达标，还是这段时间压根没评分文章
+            scored_in_window = (
+                db.query(Item)
+                .filter(Item.ai_score > 0)
+                .filter(Item.published_at >= since)
+                .count()
+            )
+            if scored_in_window == 0:
+                result["note"] = (
+                    f"最近 {days} 天内还没有已评分的文章。可能是文章未处理，"
+                    f"先在 feed-curator 触发 AI 处理，或扩大 days。"
+                )
+            else:
+                result["note"] = (
+                    f"最近 {days} 天有 {scored_in_window} 篇已评分文章，"
+                    f"但没有达到 {min_score} 星的。可降低 min_score 再试。"
+                )
+        return result
+    finally:
+        db.close()
+
+
+def _fmt_epoch(ts: int | None) -> str:
+    """epoch 秒 → 'YYYY-MM-DD HH:MM' 本地时间字符串。"""
+    if not ts:
+        return ""
+    return time.strftime("%Y-%m-%d %H:%M", time.localtime(ts))

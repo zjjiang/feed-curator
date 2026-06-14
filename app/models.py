@@ -85,3 +85,23 @@ class Job(Base):
     error = Column(Text)
     created_at = Column(Integer, nullable=False)
     finished_at = Column(Integer)
+
+
+class SyncLog(Base):
+    """一次源抓取的记录。每次 fetch_source 写一条，用于运维看板观察同步历史。"""
+    __tablename__ = "sync_logs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    source_id = Column(Integer, nullable=False, index=True)
+    source_name = Column(String(255), nullable=False)   # 冗余存名字，源被删后日志仍可读
+    source_type = Column(String(32), nullable=False)
+    trigger = Column(String(16), nullable=False, default="auto")  # auto/manual
+    ok = Column(Integer, nullable=False, default=1)      # 1=成功 0=失败
+    inserted = Column(Integer, nullable=False, default=0)  # 本次新入库条数
+    error = Column(Text)                                  # 失败时的错误信息
+    duration_ms = Column(Integer)                         # 抓取耗时（毫秒）
+    created_at = Column(Integer, nullable=False, index=True)
+
+    __table_args__ = (
+        Index("idx_synclogs_source_created", "source_id", "created_at"),
+    )

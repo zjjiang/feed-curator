@@ -169,7 +169,7 @@ def trigger_fetch(source_id: int, db: Session = Depends(get_session)):
     src = db.query(Source).filter(Source.id == source_id).first()
     if not src:
         raise HTTPException(404, "source not found")
-    count, err = fetch_source(db, src)
+    count, err = fetch_source(db, src, trigger="manual")
     if err:
         return {"ok": False, "error": err}
     return {"ok": True, "inserted": count}

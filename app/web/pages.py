@@ -9,7 +9,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.db import get_session
-from app.models import Source, Item
+from app.models import Source, Item, SyncLog
 from app.jobs.fetcher import fetch_source
 
 templates = Jinja2Templates(directory="app/web/templates")
@@ -27,6 +27,19 @@ def _fmt_time(ts: int | None) -> str:
     elif diff.days < 7:
         return f"{diff.days}天前"
     return dt.strftime("%m-%d")
+
+
+def _fmt_age(seconds: int | None) -> str:
+    """把"距今多少秒"格式化成人类可读的相对时长。"""
+    if seconds is None:
+        return "从未"
+    if seconds < 60:
+        return f"{seconds}秒前"
+    if seconds < 3600:
+        return f"{seconds // 60}分钟前"
+    if seconds < 86400:
+        return f"{seconds // 3600}小时前"
+    return f"{seconds // 86400}天前"
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -106,6 +119,110 @@ def items_page(
     })
 
 
+@router.get("/dashboard", response_class=HTMLResponse)
+def dashboard_page(request: Request, db: Session = Depends(get_session)):
+    now = int(time.time())
+    day_ago = now - 86400
+
+    sources = db.query(Source).order_by(Source.name).all()
+
+    # 每个源的总文章数 / 近24h 新增
+    total_by_src = dict(
+        db.query(Item.source_id, func.count(Item.id)).group_by(Item.source_id).all()
+    )
+    recent_by_src = dict(
+        db.query(Item.source_id, func.count(Item.id))
+        .filter(Item.fetched_at >= day_ago)
+        .group_by(Item.source_id)
+        .all()
+    )
+
+    source_rows = []
+    error_count = 0
+    overdue_count = 0
+    for s in sources:
+        last = s.last_fetched_at or 0
+        age = now - last if last else None
+        interval_s = (s.fetch_interval_min or 30) * 60
+        # 逾期判定：距上次抓取超过 间隔×2 视为可能卡住（只对启用源判定）
+        overdue = bool(s.enabled) and last > 0 and age is not None and age > interval_s * 2
+        has_error = bool(s.last_error)
+        if has_error:
+            error_count += 1
+        if overdue:
+            overdue_count += 1
+        if has_error:
+            health = "error"
+        elif overdue or last == 0:
+            health = "warn"
+        else:
+            health = "ok"
+        source_rows.append({
+            "id": s.id,
+            "name": s.name,
+            "type": s.type,
+            "enabled": bool(s.enabled),
+            "interval_min": s.fetch_interval_min,
+            "total": total_by_src.get(s.id, 0),
+            "recent24h": recent_by_src.get(s.id, 0),
+            "last_fetched_fmt": _fmt_time(s.last_fetched_at),
+            "age_str": _fmt_age(age),
+            "last_error": s.last_error,
+            "health": health,
+        })
+    # 报错和逾期的排前面
+    source_rows.sort(key=lambda r: {"error": 0, "warn": 1, "ok": 2}[r["health"]])
+
+    # AI 评分概览
+    scored = db.query(Item).filter(Item.ai_score.isnot(None), Item.ai_score > 0).count()
+    failed_score = db.query(Item).filter(Item.ai_score == -1).count()
+    pending_score = (
+        db.query(Item)
+        .filter(Item.ai_score.is_(None), Item.content_text.isnot(None), Item.content_text != "")
+        .count()
+    )
+
+    # 最近抓取日志
+    logs = db.query(SyncLog).order_by(SyncLog.id.desc()).limit(40).all()
+    log_rows = [{
+        "source_name": lg.source_name,
+        "source_type": lg.source_type,
+        "trigger": lg.trigger,
+        "ok": bool(lg.ok),
+        "inserted": lg.inserted,
+        "error": lg.error,
+        "duration_ms": lg.duration_ms,
+        "created_fmt": _fmt_time(lg.created_at),
+    } for lg in logs]
+
+    # 近24h 抓取活跃度：成功/失败次数、入库总数
+    syncs_24h = db.query(SyncLog).filter(SyncLog.created_at >= day_ago).all()
+    sync_ok = sum(1 for s in syncs_24h if s.ok)
+    sync_fail = sum(1 for s in syncs_24h if not s.ok)
+    inserted_24h = sum(s.inserted for s in syncs_24h)
+
+    summary = {
+        "source_total": len(sources),
+        "source_enabled": sum(1 for s in sources if s.enabled),
+        "source_error": error_count,
+        "source_overdue": overdue_count,
+        "item_total": sum(total_by_src.values()),
+        "item_recent24h": sum(recent_by_src.values()),
+        "scored": scored,
+        "pending_score": pending_score,
+        "failed_score": failed_score,
+        "sync_ok_24h": sync_ok,
+        "sync_fail_24h": sync_fail,
+        "inserted_24h": inserted_24h,
+    }
+
+    return templates.TemplateResponse(request, "dashboard.html", {
+        "summary": summary,
+        "source_rows": source_rows,
+        "log_rows": log_rows,
+    })
+
+
 @router.get("/sources", response_class=HTMLResponse)
 def sources_page(request: Request, db: Session = Depends(get_session)):
     sources = db.query(Source).order_by(Source.created_at.desc()).all()
@@ -156,7 +273,7 @@ async def add_source(request: Request, db: Session = Depends(get_session)):
 def trigger_fetch_page(source_id: int, db: Session = Depends(get_session)):
     src = db.query(Source).filter(Source.id == source_id).first()
     if src:
-        fetch_source(db, src)
+        fetch_source(db, src, trigger="manual")
     return RedirectResponse("/sources", status_code=303)
 
 

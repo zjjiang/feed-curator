@@ -1,0 +1,131 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="container">
+  <header>
+    <h1>feed-curator</h1>
+    <nav>
+      <a href="/">文章</a>
+      <a href="/sources">源管理</a>
+      <a href="/jobs">任务</a>
+      <a href="/settings">设置</a>
+      <a href="/dashboard">监控</a>
+    </nav>
+  </header>
+
+  <h2 style="margin-bottom:16px">监控</h2>
+
+  <!-- 健康概览卡片 -->
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:24px">
+    <div class="dash-card">
+      <div class="dash-num">{{ summary.source_enabled }}/{{ summary.source_total }}</div>
+      <div class="dash-label">启用源 / 总源数</div>
+    </div>
+    <div class="dash-card {% if summary.source_error %}danger{% endif %}">
+      <div class="dash-num">{{ summary.source_error }}</div>
+      <div class="dash-label">报错源</div>
+    </div>
+    <div class="dash-card {% if summary.source_overdue %}warn{% endif %}">
+      <div class="dash-num">{{ summary.source_overdue }}</div>
+      <div class="dash-label">逾期未抓</div>
+    </div>
+    <div class="dash-card">
+      <div class="dash-num">{{ "{:,}".format(summary.item_total) }}</div>
+      <div class="dash-label">文章总数</div>
+    </div>
+    <div class="dash-card">
+      <div class="dash-num">+{{ summary.item_recent24h }}</div>
+      <div class="dash-label">近24h 新增</div>
+    </div>
+    <div class="dash-card">
+      <div class="dash-num">{{ summary.sync_ok_24h }}<span style="font-size:0.9rem;color:#c62828"> / {{ summary.sync_fail_24h }}</span></div>
+      <div class="dash-label">近24h 抓取 成功/失败</div>
+    </div>
+    <div class="dash-card">
+      <div class="dash-num">{{ summary.scored }}</div>
+      <div class="dash-label">已AI评分</div>
+    </div>
+    <div class="dash-card {% if summary.pending_score %}warn{% endif %}">
+      <div class="dash-num">{{ summary.pending_score }}</div>
+      <div class="dash-label">待评分</div>
+    </div>
+  </div>
+
+  <!-- 各源同步状态 -->
+  <h3 style="margin:8px 0 12px">各源同步状态</h3>
+  <table style="margin-bottom:28px">
+    <thead>
+      <tr>
+        <th>健康</th>
+        <th>名称</th>
+        <th>类型</th>
+        <th>文章数</th>
+        <th>近24h</th>
+        <th>间隔</th>
+        <th>上次抓取</th>
+        <th>状态/错误</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in source_rows %}
+      <tr>
+        <td><span class="dot {{ s.health }}" title="{{ s.health }}"></span></td>
+        <td><a href="/?source_id={{ s.id }}" style="color:#1a73e8;text-decoration:none">{{ s.name }}</a>{% if not s.enabled %} <span style="font-size:0.7rem;color:#999">(停用)</span>{% endif %}</td>
+        <td><span class="source-badge {{ s.type }}">{{ s.type }}</span></td>
+        <td>{{ "{:,}".format(s.total) }}</td>
+        <td>{% if s.recent24h %}<span style="color:#2e7d32">+{{ s.recent24h }}</span>{% else %}<span style="color:#ccc">0</span>{% endif %}</td>
+        <td class="word-cell">{{ s.interval_min }}分</td>
+        <td class="time-cell">{{ s.age_str }}</td>
+        <td>
+          {% if s.last_error %}<span style="color:#c62828;font-size:0.8rem">{{ s.last_error[:60] }}</span>
+          {% elif s.health == "warn" %}<span style="color:#f5a623;font-size:0.8rem">逾期/未抓</span>
+          {% else %}<span style="color:#2e7d32;font-size:0.8rem">正常</span>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <!-- 抓取日志时间线 -->
+  <h3 style="margin:8px 0 12px">最近抓取日志 <span style="font-size:0.8rem;color:#999;font-weight:normal">(每次抓取记一条)</span></h3>
+  {% if log_rows %}
+  <table>
+    <thead>
+      <tr>
+        <th>时间</th>
+        <th>源</th>
+        <th>触发</th>
+        <th>结果</th>
+        <th>新增</th>
+        <th>耗时</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for lg in log_rows %}
+      <tr>
+        <td class="time-cell">{{ lg.created_fmt }}</td>
+        <td>{{ lg.source_name }}</td>
+        <td><span style="font-size:0.72rem;color:#888">{{ lg.trigger }}</span></td>
+        <td>{% if lg.ok %}<span style="color:#2e7d32">✓</span>{% else %}<span style="color:#c62828" title="{{ lg.error }}">✗ {{ (lg.error or "")[:40] }}</span>{% endif %}</td>
+        <td>{% if lg.inserted %}<span style="color:#2e7d32">+{{ lg.inserted }}</span>{% else %}<span style="color:#ccc">0</span>{% endif %}</td>
+        <td class="word-cell">{% if lg.duration_ms is not none %}{{ lg.duration_ms }}ms{% else %}-{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p style="color:#999;font-size:0.9rem">还没有抓取日志。下一轮自动抓取或手动触发后会出现。</p>
+  {% endif %}
+</div>
+
+<style>
+.dash-card { background:#fff; border-radius:8px; padding:16px; box-shadow:0 1px 3px rgba(0,0,0,0.08); border-left:3px solid #1a73e8; }
+.dash-card.danger { border-left-color:#c62828; }
+.dash-card.warn { border-left-color:#f5a623; }
+.dash-num { font-size:1.6rem; font-weight:600; color:#222; }
+.dash-label { font-size:0.78rem; color:#888; margin-top:2px; }
+.dot { display:inline-block; width:10px; height:10px; border-radius:50%; }
+.dot.ok { background:#2e7d32; }
+.dot.warn { background:#f5a623; }
+.dot.error { background:#c62828; }
+</style>
+{% endblock %}
