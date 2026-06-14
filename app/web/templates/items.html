@@ -5,7 +5,6 @@
     <h1>feed-curator</h1>
     <nav>
       <a href="/">文章</a>
-      <a href="/?sort=score">按评级</a>
       <a href="/sources">源管理</a>
       <a href="/jobs">处理任务</a>
       <a href="/settings">分类设置</a>
@@ -24,6 +23,10 @@
       {% for c in categories %}
       <option value="{{ c.name }}" {% if category == c.name %}selected{% endif %}>{{ c.name }}</option>
       {% endfor %}
+    </select>
+    <select onchange="location.href='/?sort='+this.value+'&source_id={{ source_id or '' }}&category={{ category or '' }}'">
+      <option value="time" {% if sort == "time" %}selected{% endif %}>按时间</option>
+      <option value="score" {% if sort == "score" %}selected{% endif %}>按星级</option>
     </select>
     <span class="stats">共 {{ total }} 篇{% if source_id or category %}（已筛选）{% endif %}</span>
   </div>
@@ -53,6 +56,11 @@
         </td>
         <td class="title-cell">
           <a href="{{ item.url }}" target="_blank" onclick="markRead({{ item.id }})">{{ item.title }}</a>
+          {% if item.stars is not none %}
+            <span style="font-size:0.78rem;color:#888;white-space:nowrap;margin-left:6px">
+              ⭐ {{ "{:,}".format(item.stars) }}{% if item.language %} · {{ item.language }}{% endif %}
+            </span>
+          {% endif %}
           {% if item.ai_summary and item.ai_score != -1 %}<br><span style="font-size:0.8rem;color:#888">{{ item.ai_summary }}</span>{% endif %}
         </td>
         <td>

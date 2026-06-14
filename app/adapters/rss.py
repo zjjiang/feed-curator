@@ -1,9 +1,42 @@
+import re
 import time
 from typing import Any
 import feedparser
 
 from app.adapters.base import SourceAdapter, FetchedItem
 from app.utils.html_clean import html_to_text
+
+
+# RSSHub 的 GitHub Trending 等源会把仓库元信息以 "Stars: 123" 形式塞进正文。
+# 这里做宽容提取：命中才写入 meta，对不含这些字段的普通 RSS 完全无副作用。
+_RE_STARS = re.compile(r"Stars?\s*[:：]\s*([\d,]+)", re.IGNORECASE)
+_RE_FORKS = re.compile(r"Forks?\s*[:：]\s*([\d,]+)", re.IGNORECASE)
+_RE_LANG = re.compile(r"Language\s*[:：]\s*([^\n\r]+)", re.IGNORECASE)
+
+
+def _extract_repo_meta(text: str) -> dict[str, Any]:
+    """从正文中提取 GitHub 仓库元信息（stars/forks/language）。无则返回空字典。"""
+    if not text:
+        return {}
+    meta: dict[str, Any] = {}
+    m = _RE_STARS.search(text)
+    if m:
+        try:
+            meta["stars"] = int(m.group(1).replace(",", ""))
+        except ValueError:
+            pass
+    m = _RE_FORKS.search(text)
+    if m:
+        try:
+            meta["forks"] = int(m.group(1).replace(",", ""))
+        except ValueError:
+            pass
+    m = _RE_LANG.search(text)
+    if m:
+        lang = m.group(1).strip()
+        if lang:
+            meta["language"] = lang
+    return meta
 
 
 def _parse_time(struct_time) -> int | None:
@@ -74,6 +107,14 @@ class RSSAdapter(SourceAdapter):
                 entry.get("updated_parsed")
             )
 
+            meta: dict[str, Any] = {
+                "tags": [t.term for t in entry.get("tags", []) if t.get("term")],
+            }
+            # 宽容提取 GitHub 仓库元信息（stars/forks/language），命中才写入
+            repo_meta = _extract_repo_meta(content_text)
+            if repo_meta:
+                meta.update(repo_meta)
+
             item = FetchedItem(
                 external_id=str(external_id),
                 title=entry.get("title", "(无标题)").strip(),
@@ -84,9 +125,7 @@ class RSSAdapter(SourceAdapter):
                 content_html=content_html,
                 cover_image_url=_pick_cover_image(entry, content_html),
                 published_at=published,
-                meta={
-                    "tags": [t.term for t in entry.get("tags", []) if t.get("term")],
-                },
+                meta=meta,
             )
             items.append(item)
 

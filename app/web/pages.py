@@ -5,6 +5,7 @@ from datetime import datetime
 from fastapi import APIRouter, Request, Depends
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.db import get_session
@@ -50,17 +51,22 @@ def items_page(
         # ai_tags 存的是 JSON 数组字符串,用 LIKE 粗筛(分类名带引号包裹避免子串误匹配)
         q = q.filter(Item.ai_tags.like(f'%"{category}"%'))
 
+    total = q.count()
     if sort == "score":
-        q = q.filter(Item.ai_score.isnot(None), Item.ai_score > 0)
-        total = q.count()
-        items_raw = q.order_by(Item.ai_score.desc(), Item.published_at.desc()).offset(offset).limit(per_page).all()
+        # 按星级降序;未处理(NULL)和失败(-1)排到最后,同档再按发布时间倒序。
+        # 不过滤未处理文章,否则待处理居多时列表会几乎空掉。
+        score_key = func.coalesce(Item.ai_score, 0)
+        items_raw = (
+            q.order_by(score_key.desc(), Item.published_at.desc())
+            .offset(offset).limit(per_page).all()
+        )
     else:
-        total = q.count()
         items_raw = q.order_by(Item.published_at.desc()).offset(offset).limit(per_page).all()
 
     items = []
     for i in items_raw:
         preview_text = (i.content_text or i.description or "")[:300]
+        meta = json.loads(i.meta) if i.meta else {}
         items.append({
             "id": i.id,
             "title": i.title,
@@ -71,6 +77,9 @@ def items_page(
             "word_count": i.word_count,
             "published_at_fmt": _fmt_time(i.published_at),
             "preview": preview_text,
+            "stars": meta.get("stars"),
+            "forks": meta.get("forks"),
+            "language": meta.get("language"),
             "ai_score": i.ai_score,
             "ai_summary": i.ai_summary,
             "ai_keypoints": json.loads(i.ai_keypoints) if i.ai_keypoints else [],
