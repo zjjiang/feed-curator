@@ -8,6 +8,9 @@
 - subscribe_wechat ：按 fakeid 订阅公众号并建源（自动串 we-mp-rss → feed-curator）
 - list_sources     ：列出现有源（便于去重/确认）
 - recommend_articles：按时间窗口推荐评分最高的几篇文章
+- list_categories / add_category / update_category / delete_category：分类关键词增删改查
+- rescore_all_articles：清空所有评分并重新跑全量分类
+- job_status        ：查询当前/最近的处理任务状态
 
 安全说明：/mcp 与现有 JSON API 一样无鉴权，监听同一端口。本地自用场景可接受；
 若部署到不可信网络，应在反向代理或此处补 token 校验，或将服务绑回 127.0.0.1。
@@ -21,7 +24,7 @@ from mcp.server.fastmcp import FastMCP
 
 from app.db import SessionLocal
 from app.jobs.fetcher import fetch_source
-from app.models import Item, Source
+from app.models import Item, Job, Source
 from app.services import source_service
 from app.services.wewe_client import WeweClient, WeweError
 
@@ -289,3 +292,233 @@ def _fmt_epoch(ts: int | None) -> str:
     if not ts:
         return ""
     return time.strftime("%Y-%m-%d %H:%M", time.localtime(ts))
+
+
+# ============ 分类关键词增删改查 ============
+# 分类表是 AI 给文章打标签时的候选集，存在 Setting 表的 categories 记录里。
+# 每项形如 {"name": "AI", "desc": "模型进展与应用"}，desc 会喂给 LLM 辅助打标。
+
+
+@mcp.tool()
+def list_categories() -> dict:
+    """列出当前所有分类关键词（AI 给文章打标签时的候选集）。
+
+    Returns:
+        包含 categories 列表的字典，每项有 name/desc。
+    """
+    from app.ai.scorer import get_categories
+
+    db = SessionLocal()
+    try:
+        cats = get_categories(db)
+        return {"ok": True, "count": len(cats), "categories": cats}
+    finally:
+        db.close()
+
+
+@mcp.tool()
+def add_category(name: str, desc: str = "") -> dict:
+    """新增一个分类关键词。
+
+    Args:
+        name: 分类名（唯一，已存在则报错）。
+        desc: 分类说明，会喂给 LLM 帮助判断文章是否属于该类，建议填写。
+
+    Returns:
+        操作结果 + 更新后的完整分类列表。
+    """
+    from app.ai.scorer import get_categories, save_categories
+
+    if not name or not name.strip():
+        return {"ok": False, "error": "name 不能为空"}
+    name = name.strip()
+
+    db = SessionLocal()
+    try:
+        cats = get_categories(db)
+        if any(c["name"] == name for c in cats):
+            return {"ok": False, "error": f"分类「{name}」已存在，如需改说明请用 update_category"}
+        cats.append({"name": name, "desc": desc.strip()})
+        save_categories(db, cats)
+        return {"ok": True, "message": f"已新增分类「{name}」", "categories": cats}
+    finally:
+        db.close()
+
+
+@mcp.tool()
+def update_category(name: str, desc: str) -> dict:
+    """修改一个已有分类的说明（desc）。分类名本身不可改，要改名请删了重建。
+
+    Args:
+        name: 要修改的分类名（须已存在）。
+        desc: 新的分类说明。
+
+    Returns:
+        操作结果 + 更新后的完整分类列表。
+    """
+    from app.ai.scorer import get_categories, save_categories
+
+    if not name or not name.strip():
+        return {"ok": False, "error": "name 不能为空"}
+    name = name.strip()
+
+    db = SessionLocal()
+    try:
+        cats = get_categories(db)
+        hit = next((c for c in cats if c["name"] == name), None)
+        if hit is None:
+            return {"ok": False, "error": f"分类「{name}」不存在"}
+        hit["desc"] = desc.strip()
+        save_categories(db, cats)
+        return {"ok": True, "message": f"已更新分类「{name}」的说明", "categories": cats}
+    finally:
+        db.close()
+
+
+@mcp.tool()
+def delete_category(name: str) -> dict:
+    """删除一个分类关键词。
+
+    注意：删除分类不会改动已打在文章上的旧标签；要让分类调整全面生效，
+    可随后调用 rescore_all_articles 重新跑全量分类。
+
+    Args:
+        name: 要删除的分类名。
+
+    Returns:
+        操作结果 + 删除后的完整分类列表。
+    """
+    from app.ai.scorer import get_categories, save_categories
+
+    if not name or not name.strip():
+        return {"ok": False, "error": "name 不能为空"}
+    name = name.strip()
+
+    db = SessionLocal()
+    try:
+        cats = get_categories(db)
+        new_cats = [c for c in cats if c["name"] != name]
+        if len(new_cats) == len(cats):
+            return {"ok": False, "error": f"分类「{name}」不存在"}
+        save_categories(db, new_cats)
+        return {"ok": True, "message": f"已删除分类「{name}」", "categories": new_cats}
+    finally:
+        db.close()
+
+
+# ============ 全量重跑 ============
+
+
+@mcp.tool()
+def rescore_all_articles() -> dict:
+    """清空所有文章的 AI 评分结果，并立即启动一个任务按当前分类表重新处理全部文章。
+
+    适用场景：调整了分类关键词后，想让改动对历史文章也生效。
+    这会重新调用 LLM 处理每一篇有正文的文章，耗时和 token 消耗都不小。
+    用 job_status 查看进度。
+
+    Returns:
+        清空篇数、新任务 id、待处理篇数。若未配置 DEEPSEEK_API_KEY，
+        评分会清空但任务无法启动（started=False）。
+    """
+    from app.ai.scorer import rescore_all
+    from app.jobs.runner import start_process_job
+
+    db = SessionLocal()
+    try:
+        cleared = rescore_all(db)
+    finally:
+        db.close()
+
+    job_id, created = start_process_job(trigger="manual")
+    if job_id is None:
+        return {
+            "ok": True,
+            "cleared": cleared,
+            "started": False,
+            "note": "已清空评分，但没有可处理的文章（无正文或未配置 API key）",
+        }
+    return {
+        "ok": True,
+        "cleared": cleared,
+        "started": True,
+        "job_id": job_id,
+        "is_new_job": created,
+        "note": "已开始重新处理，用 job_status 查看进度",
+    }
+
+
+# ============ 任务状态 ============
+
+
+@mcp.tool()
+def job_status(job_id: int | None = None) -> dict:
+    """查询 AI 处理任务的状态与进度。
+
+    Args:
+        job_id: 可选。指定则查该任务；不指定则返回当前正在跑的任务，
+                若没有在跑的则返回最近一个任务。
+
+    Returns:
+        任务的 status（running/done/failed/cancelled）、trigger、
+        total/processed/succeeded/failed 计数、进度百分比、时间。
+        另含 pending（当前还有多少篇待处理）。
+    """
+    db = SessionLocal()
+    try:
+        if job_id is not None:
+            job = db.query(Job).filter(Job.id == job_id).first()
+            if job is None:
+                return {"ok": False, "error": f"任务 {job_id} 不存在"}
+        else:
+            job = (
+                db.query(Job)
+                .filter(Job.status == "running")
+                .order_by(Job.id.desc())
+                .first()
+            )
+            if job is None:
+                job = db.query(Job).order_by(Job.id.desc()).first()
+
+        pending = (
+            db.query(Item.id)
+            .filter(Item.ai_score.is_(None))
+            .filter(Item.content_text.isnot(None))
+            .filter(Item.content_text != "")
+            .count()
+        )
+
+        if job is None:
+            return {
+                "ok": True,
+                "job": None,
+                "pending": pending,
+                "note": "还没有任何处理任务记录",
+            }
+
+        pct = int(job.processed * 100 / job.total) if job.total else 0
+        duration = (
+            (job.finished_at - job.created_at)
+            if job.finished_at and job.created_at
+            else None
+        )
+        return {
+            "ok": True,
+            "pending": pending,
+            "job": {
+                "id": job.id,
+                "status": job.status,
+                "trigger": job.trigger,
+                "total": job.total,
+                "processed": job.processed,
+                "succeeded": job.succeeded,
+                "failed": job.failed,
+                "percent": pct,
+                "created_at": _fmt_epoch(job.created_at),
+                "finished_at": _fmt_epoch(job.finished_at),
+                "duration_sec": duration,
+                "error": job.error,
+            },
+        }
+    finally:
+        db.close()
