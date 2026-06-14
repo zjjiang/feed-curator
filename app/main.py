@@ -13,6 +13,7 @@ from app.db import init_db, SessionLocal, get_session
 from app.models import Source, Item, Setting
 from app.jobs.fetcher import fetch_source
 from app.web.pages import router as web_router
+from app.mcp_server import mcp
 
 
 scheduler = BackgroundScheduler()
@@ -49,13 +50,13 @@ def _run_fetch_cycle():
 
 
 def _run_scoring_cycle():
-    llm = _get_llm()
-    if not llm:
+    """系统自动触发:有待处理文章且当前没有任务在跑时,自动建一个处理任务。"""
+    if not _get_llm():
         return
-    from app.ai.scorer import run_scoring_batch
-    scored = run_scoring_batch(llm, batch_size=10)
-    if scored > 0:
-        print(f"[ai] 本轮评分 {scored} 篇")
+    from app.jobs.runner import start_process_job
+    job_id, created = start_process_job(trigger="auto")
+    if created:
+        print(f"[ai] 自动创建处理任务 #{job_id}")
 
 
 @asynccontextmanager
@@ -66,12 +67,19 @@ async def lifespan(app: FastAPI):
     scheduler.start()
     llm_status = "已配置" if _get_llm() else "未配置 DEEPSEEK_API_KEY"
     print(f"[feed-curator] 启动完成，调度器已运行，AI评分: {llm_status}")
-    yield
+    # 挂载式 streamable-http 必须在父应用 lifespan 内启动其 session manager，
+    # 否则 /mcp 端点不工作。
+    async with mcp.session_manager.run():
+        print("[feed-curator] MCP server 已挂载于 /mcp")
+        yield
     scheduler.shutdown()
 
 
 app = FastAPI(title="feed-curator", lifespan=lifespan)
 app.include_router(web_router)
+# MCP（streamable-http）挂载在 /mcp。mcp_server 里把 streamable_http_path 设为 "/"，
+# 经此 mount 后对外路径为 /mcp。
+app.mount("/mcp", mcp.streamable_http_app())
 
 
 class SourceCreate(BaseModel):
@@ -148,6 +156,8 @@ def list_items(
                 "description": (i.description or "")[:200],
                 "ai_score": i.ai_score,
                 "ai_summary": i.ai_summary,
+                "ai_keypoints": json.loads(i.ai_keypoints) if i.ai_keypoints else [],
+                "ai_tags": json.loads(i.ai_tags) if i.ai_tags else [],
             }
             for i in items
         ],
@@ -165,14 +175,55 @@ def trigger_fetch(source_id: int, db: Session = Depends(get_session)):
     return {"ok": True, "inserted": count}
 
 
-@app.post("/api/score")
-def trigger_scoring():
-    llm = _get_llm()
-    if not llm:
+def _job_dict(j):
+    return {
+        "id": j.id,
+        "status": j.status,
+        "trigger": j.trigger,
+        "total": j.total,
+        "processed": j.processed,
+        "succeeded": j.succeeded,
+        "failed": j.failed,
+        "error": j.error,
+        "created_at": j.created_at,
+        "finished_at": j.finished_at,
+    }
+
+
+@app.post("/api/jobs/process-all")
+def process_all():
+    """人工全量触发:处理所有待处理文章。已有任务在跑则复用,不新建。"""
+    if not _get_llm():
         return {"ok": False, "error": "DEEPSEEK_API_KEY 未配置"}
-    from app.ai.scorer import run_scoring_batch
-    scored = run_scoring_batch(llm, batch_size=10)
-    return {"ok": True, "scored": scored}
+    from app.jobs.runner import start_process_job
+    job_id, created = start_process_job(trigger="manual")
+    if job_id is None:
+        return {"ok": True, "job_id": None, "msg": "没有待处理的文章"}
+    return {"ok": True, "job_id": job_id, "created": created,
+            "msg": "已创建处理任务" if created else "已有任务在运行,已复用"}
+
+
+@app.get("/api/jobs")
+def list_jobs(limit: int = Query(20, ge=1, le=100), db: Session = Depends(get_session)):
+    from app.models import Job
+    jobs = db.query(Job).order_by(Job.id.desc()).limit(limit).all()
+    return {"jobs": [_job_dict(j) for j in jobs]}
+
+
+@app.get("/api/jobs/{job_id}")
+def get_job(job_id: int, db: Session = Depends(get_session)):
+    from app.models import Job
+    j = db.query(Job).filter(Job.id == job_id).first()
+    if not j:
+        raise HTTPException(404, "job not found")
+    return _job_dict(j)
+
+
+@app.post("/api/jobs/{job_id}/cancel")
+def cancel_job_api(job_id: int):
+    from app.jobs.runner import cancel_job
+    ok = cancel_job(job_id)
+    return {"ok": ok, "msg": "已请求取消" if ok else "任务不在运行中"}
 
 
 @app.post("/api/items/{item_id}/favorite")
@@ -195,37 +246,37 @@ def mark_read(item_id: int, db: Session = Depends(get_session)):
     return {"ok": True}
 
 
-@app.post("/api/items/{item_id}/rate")
-def rate_item(item_id: int, rating: int = Query(ge=1, le=5), db: Session = Depends(get_session)):
-    item = db.query(Item).filter(Item.id == item_id).first()
-    if not item:
-        raise HTTPException(404, "item not found")
-    item.user_rating = rating
-    db.commit()
-    return {"ok": True, "user_rating": rating}
+class Category(BaseModel):
+    name: str
+    desc: str = ""
 
 
-class PreferencesUpdate(BaseModel):
-    text: str
+@app.get("/api/categories")
+def get_categories_api(db: Session = Depends(get_session)):
+    from app.ai.scorer import get_categories
+    return {"categories": get_categories(db)}
 
 
-@app.get("/api/preferences")
-def get_preferences(db: Session = Depends(get_session)):
-    s = db.query(Setting).filter(Setting.key == "preferences").first()
-    return {"text": s.value if s and s.value else ""}
+@app.post("/api/categories")
+def add_category(body: Category, db: Session = Depends(get_session)):
+    from app.ai.scorer import get_categories, save_categories
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(400, "分类名不能为空")
+    cats = get_categories(db)
+    if any(c["name"] == name for c in cats):
+        raise HTTPException(409, "分类已存在")
+    cats.append({"name": name, "desc": body.desc.strip()})
+    save_categories(db, cats)
+    return {"ok": True, "categories": cats}
 
 
-@app.post("/api/preferences")
-def set_preferences(body: PreferencesUpdate, db: Session = Depends(get_session)):
-    s = db.query(Setting).filter(Setting.key == "preferences").first()
-    if not s:
-        s = Setting(key="preferences", value=body.text, updated_at=int(time.time()))
-        db.add(s)
-    else:
-        s.value = body.text
-        s.updated_at = int(time.time())
-    db.commit()
-    return {"ok": True}
+@app.delete("/api/categories/{name}")
+def delete_category(name: str, db: Session = Depends(get_session)):
+    from app.ai.scorer import get_categories, save_categories
+    cats = [c for c in get_categories(db) if c["name"] != name]
+    save_categories(db, cats)
+    return {"ok": True, "categories": cats}
 
 
 @app.post("/api/score/reset-failed")
@@ -239,4 +290,4 @@ def reset_failed(db: Session = Depends(get_session)):
 def rescore_all_endpoint(db: Session = Depends(get_session)):
     from app.ai.scorer import rescore_all
     n = rescore_all(db)
-    return {"ok": True, "cleared": n, "msg": "全部清空，下轮调度会重评"}
+    return {"ok": True, "cleared": n, "msg": "全部清空，下轮调度会重处理"}

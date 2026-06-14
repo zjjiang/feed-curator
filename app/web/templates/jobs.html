@@ -1,0 +1,125 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="container">
+  <header>
+    <h1>feed-curator</h1>
+    <nav>
+      <a href="/">文章</a>
+      <a href="/?sort=score">按评级</a>
+      <a href="/sources">源管理</a>
+      <a href="/jobs">处理任务</a>
+      <a href="/settings">分类设置</a>
+    </nav>
+  </header>
+
+  <h2 style="margin-bottom:16px">AI 处理任务</h2>
+
+  <div style="background:#fff;padding:20px;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.08);margin-bottom:24px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+    <div>
+      <div style="font-size:0.85rem;color:#666">待处理文章</div>
+      <div style="font-size:1.6rem;font-weight:600">{{ pending }} <span style="font-size:0.9rem;color:#999;font-weight:400">篇</span></div>
+    </div>
+    <button id="trigger-btn" onclick="triggerAll()" {% if pending == 0 %}disabled{% endif %}
+      style="padding:10px 22px;background:#1a73e8;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:0.95rem;margin-left:auto">
+      全量处理
+    </button>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th style="width:6%">#</th>
+        <th style="width:10%">触发</th>
+        <th style="width:34%">进度</th>
+        <th>结果</th>
+        <th>耗时</th>
+        <th>创建</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody id="jobs-body">
+      {% for j in jobs %}
+      <tr data-job-id="{{ j.id }}" data-status="{{ j.status }}">
+        <td>{{ j.id }}</td>
+        <td><span style="font-size:0.75rem;color:#888">{{ "手动" if j.trigger == "manual" else "自动" }}</span></td>
+        <td>
+          <div class="progress-wrap"><div class="progress-bar" style="width:{{ j.pct }}%"></div></div>
+          <span class="progress-text">{{ j.processed }}/{{ j.total }}</span>
+        </td>
+        <td>
+          {% if j.status == "running" %}<span class="job-status running">处理中</span>
+          {% elif j.status == "done" %}<span class="job-status done">完成</span>
+          {% elif j.status == "cancelled" %}<span class="job-status cancelled">已取消</span>
+          {% else %}<span class="job-status failed" title="{{ j.error or '' }}">失败</span>{% endif %}
+          <span style="font-size:0.78rem;color:#888;margin-left:6px">✓{{ j.succeeded }} ✗{{ j.failed }}</span>
+        </td>
+        <td class="time-cell">{% if j.duration is not none %}{{ j.duration }}s{% else %}-{% endif %}</td>
+        <td class="time-cell">{{ j.created_fmt }}</td>
+        <td>
+          {% if j.status == "running" %}
+          <span class="expand-btn" onclick="cancelJob({{ j.id }})" style="color:#c62828">取消</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if not jobs %}
+  <p style="color:#999;text-align:center;padding:30px">还没有任务。点上面的"全量处理"开始,或等系统自动触发。</p>
+  {% endif %}
+</div>
+
+<style>
+.progress-wrap { display:inline-block; width:70%; height:8px; background:#eee; border-radius:4px; overflow:hidden; vertical-align:middle; }
+.progress-bar { height:100%; background:#1a73e8; transition:width 0.4s; }
+.progress-text { font-size:0.78rem; color:#666; margin-left:8px; }
+.job-status { font-size:0.8rem; padding:2px 8px; border-radius:10px; }
+.job-status.running { background:#e3f2fd; color:#1565c0; }
+.job-status.done { background:#e8f5e9; color:#2e7d32; }
+.job-status.failed { background:#ffebee; color:#c62828; }
+.job-status.cancelled { background:#f5f5f5; color:#999; }
+</style>
+
+<script>
+function triggerAll() {
+  var btn = document.getElementById('trigger-btn');
+  btn.disabled = true; btn.textContent = '启动中...';
+  fetch('/api/jobs/process-all', {method:'POST'})
+    .then(r => r.json())
+    .then(d => {
+      if (!d.ok) { alert(d.error || '触发失败'); btn.disabled = false; btn.textContent = '全量处理'; return; }
+      location.reload();
+    });
+}
+function cancelJob(id) {
+  if (!confirm('取消任务 #' + id + '？已处理的文章会保留。')) return;
+  fetch('/api/jobs/' + id + '/cancel', {method:'POST'}).then(() => {});
+}
+// 有运行中的任务时,轮询刷新进度
+function hasRunning() {
+  return document.querySelector('tr[data-status="running"]') !== null;
+}
+function poll() {
+  fetch('/api/jobs?limit=20').then(r => r.json()).then(d => {
+    var stillRunning = false;
+    d.jobs.forEach(function(j) {
+      var row = document.querySelector('tr[data-job-id="' + j.id + '"]');
+      if (!row) { if (j.status === 'running') stillRunning = true; return; }
+      var pct = j.total ? Math.round(j.processed * 100 / j.total) : 0;
+      row.querySelector('.progress-bar').style.width = pct + '%';
+      row.querySelector('.progress-text').textContent = j.processed + '/' + j.total;
+      row.setAttribute('data-status', j.status);
+      if (j.status === 'running') stillRunning = true;
+    });
+    // 出现了列表里没有的新任务(如刚自动触发),整页刷新
+    var knownIds = Array.from(document.querySelectorAll('tr[data-job-id]')).map(r => parseInt(r.getAttribute('data-job-id')));
+    var hasNew = d.jobs.some(j => knownIds.indexOf(j.id) === -1);
+    if (hasNew) { location.reload(); return; }
+    if (stillRunning) setTimeout(poll, 2500);
+    else if (anyWasRunning) location.reload();  // 跑完了刷新一次看最终结果
+  });
+}
+var anyWasRunning = hasRunning();
+if (anyWasRunning) setTimeout(poll, 2500);
+</script>
+{% endblock %}
