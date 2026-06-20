@@ -4,6 +4,8 @@
 (2026-06,feed-curator 已容器化,数据库已合并进 db-mp,本机 Homebrew MySQL 已退役)。
 
 > 适用范围:本仓库(feed-curator)。we-mp-rss、RSSHub 为独立项目,本文仅描述与它们的集成关系。
+>
+> 只想知道怎么起/停/排障?看 [`startup.md`](startup.md) 一页速查。本文讲架构与原理。
 
 ## 服务全景(当前)
 
