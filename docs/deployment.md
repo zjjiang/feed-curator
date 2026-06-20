@@ -10,12 +10,16 @@
 | 服务 | 端口 | 角色 | 运行方式 |
 |------|------|------|---------|
 | feed-curator | 9003 | 采集 + AI 评分 + Web + MCP | **Docker (restart=unless-stopped)** |
-| we-mp-rss | 9001 | 微信公众号采集 | 本机 uv + nohup |
+| we-mp-rss | 9001 | 微信公众号采集 | **Docker (restart=unless-stopped)** |
 | RSSHub | 9002 | RSS 桥接(虎嗅等) | Docker (restart=always) |
 | db-mp (Docker MySQL) | 3306 | **`feed_curator` + `we_mp_rss` 两库** | Docker (restart=always) |
-| redis | 6379 | we-mp-rss 任务队列 | Docker |
-| singbox | - | we-mp-rss 抓公众号的代理 | Docker |
 | ~~Homebrew MySQL~~ | ~~3306~~ | ~~已退役(stop,数据保留供回滚)~~ | ~~brew services~~ |
+| ~~Homebrew redis~~ | ~~6379~~ | ~~已退役;we-mp-rss 改用镜像内置 redis~~ | ~~brew services~~ |
+| ~~singbox~~ | - | ~~未启用(PROXY_ENABLED=False,宿主另有 Clash)~~ | - |
+
+> we-mp-rss 容器化细节见文末「we-mp-rss 容器化」一节。它是上游仓库
+> (github.com/rachelos/we-mp-rss),定制 compose 未提交上游,留在本机
+> `~/Projects/we-mp-rss/docker-compose.curator.yml`。
 
 ## 演进前架构(历史,迁移前)
 
@@ -179,5 +183,45 @@ docker exec db-mp mysqldump -uroot -p<rootpass> --single-transaction \
   `localhost:9002` → `host.docker.internal`(因 wechat 适配器以源 config 里的
   `wewe_base_url` 优先,环境变量覆盖不到抓取路径,故必须改 DB)。
 - 退役 Homebrew MySQL(`brew services stop mysql`),3306 仅剩 db-mp 监听。
+
+## we-mp-rss 容器化(2026-06)
+
+we-mp-rss 同样容器化了,接入同一套 db-mp / feed-net,与 feed-curator 一致。
+
+**为何不用官方 compose**:官方 `compose/docker-compose.yaml` 会自建 mysql/redis/
+singbox 四件套,与现有手动管理的 db-mp 冲突、端口也按 8001。故另写一份定制 compose
+`~/Projects/we-mp-rss/docker-compose.curator.yml`(we-mp-rss 是上游仓库,此文件不
+提交上游,仅本机保留)。
+
+**镜像来源**:`ghcr.io/rachelos/we-mp-rss:latest`。ghcr.io 直连/Docker Hub mirror
+都拉不动(daemon registry-mirrors 只代理 docker.io,不代理 ghcr),改用**南大 ghcr
+代理** `ghcr.nju.edu.cn/rachelos/we-mp-rss:latest` 拉取(3.4GB),再 retag 回
+`ghcr.io/...` 供 compose 引用。
+
+**实际依赖(摸排后精简)**:
+- **DB**:经 feed-net 用服务名连 `db-mp:3306`,账号 `rss_user`,库 `we_mp_rss`。
+  容器源 IP 命中 `rss_user@'%'` 授权 —— 绕开了本机进程那个「必须用 localhost、
+  127.0.0.1 反向 DNS 会 Access denied」的坑。
+- **redis**:镜像**自带内置 redis**,数据持久化在挂载的 `./data/redis/dump.rdb`。
+  故**不需要**外挂 redis 容器,本机 Homebrew redis 已退役(`brew services stop redis`)。
+- **代理 singbox**:`.env` 里 `PROXY_ENABLED=False`(宿主另有 Clash Verge),不纳入。
+- **Xvfb/显示**:`HEADLESS=true`,运行时无需虚拟显示。
+- **登录态**:存于 `./data`(`.secret_key`、`wx.lic`、`cache`),挂载进容器即复用,
+  **无需重新扫码**。
+
+**compose 要点**(`docker-compose.curator.yml`):`PORT=9001`、`HEADLESS=true`、
+`AUTO_RELOAD=False`(关热重载,单进程,消除内置 redis 端口重复占用 warn)、
+`TZ=Asia/Shanghai`、挂 `./data`、接 `feed-net`(external)。
+
+**启停**:
+```bash
+cd ~/Projects/we-mp-rss
+docker compose -f docker-compose.curator.yml up -d
+docker compose -f docker-compose.curator.yml logs -f
+```
+
+**验证结果**:容器 :9001 API 200;经 feed-curator 触发微信源抓取端到端打通
+(`GET /feed/MP_WXS_*.json 200`),登录态有效。本机 nohup 进程已停,无 launchd
+自启,重启不会与容器抢端口。
 
 

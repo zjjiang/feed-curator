@@ -148,7 +148,7 @@ the `db-mp` container.**
 | Component | Port | How it runs | Auto-restart? |
 |-----------|------|-------------|---------------|
 | feed-curator | 9003 | Docker `feed-curator` (`restart: unless-stopped`, on `feed-net`) | Yes |
-| we-mp-rss | 9001 | local uv (Python 3.11) at `~/Projects/we-mp-rss`, `nohup` | No — manual on reboot |
+| we-mp-rss | 9001 | Docker `we-mp-rss` (`restart: unless-stopped`, on `feed-net`) | Yes |
 | RSSHub | 9002 | Docker `rsshub` (`--restart always`) | Yes |
 | MySQL (docker) | 3306 (\*, incl. IPv6) | Docker `db-mp` (`--restart always`) — backs **both** `feed_curator` and `we_mp_rss` dbs; also joined to `feed-net` | Yes |
 
@@ -167,10 +167,19 @@ host's `localhost`). Existing source rows were rewritten during migration.
 - ghcr.io / docker.io are unreachable here. Docker daemon `registry-mirrors` is
   configured (`~/.docker/daemon.json`: 1ms.run, daocloud, etc.) so plain `docker
   pull` / `compose build` route through domestic mirrors — large base layers are
-  slow but complete. The Dockerfile also swaps apt to the Tsinghua Debian mirror
-  and installs Python deps via Tsinghua PyPI. GitHub clone over SSH (HTTPS times
-  out). playwright kernels via `npmmirror.com/mirrors/playwright`.
-- we-mp-rss must connect to MySQL via `localhost`, NOT `127.0.0.1` (reverse-DNS makes MySQL match the wrong grant → `Access denied`). It also needs the playwright **webkit** kernel for WeChat QR login, and `env -u USERNAME` on launch (system `USERNAME` overrides the admin login name otherwise).
+  slow but complete. **Mirrors only proxy docker.io, NOT ghcr.io** — for ghcr
+  images pull via `ghcr.nju.edu.cn/<owner>/<img>` (南大代理) then `docker tag`
+  back to `ghcr.io/...`. The Dockerfile also swaps apt to the Tsinghua Debian
+  mirror and installs Python deps via Tsinghua PyPI. GitHub clone over SSH (HTTPS
+  times out). playwright kernels via `npmmirror.com/mirrors/playwright`.
+- we-mp-rss is containerized (`~/Projects/we-mp-rss/docker-compose.curator.yml`,
+  not committed upstream). It connects to db-mp by service name over feed-net
+  (source IP matches `rss_user@'%'`, sidestepping the native-process `localhost`
+  vs `127.0.0.1` reverse-DNS grant gotcha). Image self-bundles redis (data in
+  `./data/redis`); login state persists in `./data` (`.secret_key`, `wx.lic`) so
+  no re-scan. `HEADLESS=true` ⇒ no Xvfb needed; proxy disabled. The legacy native
+  caveats (`env -u USERNAME`, playwright webkit) apply only to the old uv+nohup
+  run, now retired.
 
 ## Conventions specific to this codebase
 
