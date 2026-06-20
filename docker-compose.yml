@@ -7,6 +7,9 @@ services:
     image: feed-curator:latest
     container_name: feed-curator
     restart: unless-stopped
+    environment:
+      # 显示层用本地时区转换时间戳(否则容器默认 UTC,页面时间差 8 小时)
+      - TZ=Asia/Shanghai
     ports:
       - "9003:9003"
     env_file:
