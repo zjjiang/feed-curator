@@ -1,0 +1,29 @@
+# feed-curator 容器编排。
+# 数据库用 db-mp(由 we-mp-rss 的 compose 管理,这里作为外部网络成员接入)。
+# 依赖 we-mp-rss(:9001)/ RSSHub(:9002)仍在宿主机,经 host.docker.internal 访问。
+services:
+  feed-curator:
+    build: .
+    image: feed-curator:latest
+    container_name: feed-curator
+    restart: unless-stopped
+    ports:
+      - "9003:9003"
+    env_file:
+      - .env
+    extra_hosts:
+      # 让容器能用 host.docker.internal 访问宿主机的 we-mp-rss / RSSHub
+      - "host.docker.internal:host-gateway"
+    networks:
+      - feed-net
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9003/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+networks:
+  # 外部网络,db-mp 已 connect 进来;容器间用服务名 db-mp 直连。
+  feed-net:
+    external: true

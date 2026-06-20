@@ -11,31 +11,51 @@ The earlier design scored articles 1–10 against a free-text *preference* and b
 ## Commands
 
 ```bash
-./start.sh                                                       # preferred: sets DATABASE_URL (MySQL) + sane defaults
-uv sync                                                          # install deps (Python 3.14+)
+docker compose up -d --build                                     # preferred: containerized, auto-restarts on reboot
+docker compose logs -f                                           # tail container logs
 curl http://localhost:9003/health                                # health check → {"status":"ok"}
 ```
 
-Running uvicorn directly works too, but **you must export `DATABASE_URL` first** (or have it in `.env`) or the app silently falls back to local SQLite. Secrets live in `.env` (gitignored; copy from `.env.example`) and `start.sh` loads them:
+feed-curator runs as a Docker container (`docker-compose.yml`), connecting to the
+`db-mp` MySQL container over the `feed-net` network. Config comes from `.env`
+(gitignored; copy from `.env.example`). See `docs/deployment.md` for the full
+architecture and the one-time setup (db migration, `feed-net`, registry mirrors).
+
+Running natively with uv still works for dev, but you must export `DATABASE_URL`
+first (or have it in `.env`) or the app silently falls back to local SQLite:
 
 ```bash
+uv sync                                                          # install deps (Python 3.14+)
 export DATABASE_URL="mysql+pymysql://USER:PASSWORD@127.0.0.1:3306/feed_curator?charset=utf8mb4"
 export DEEPSEEK_API_KEY="sk-..."   # optional; without it, fetch works but AI processing is disabled
 uv run --no-sync uvicorn app.main:app --port 9003 --host 0.0.0.0
 ```
 
-This service is a `nohup` background process — it does NOT auto-start on reboot (unlike the Docker containers below). Logs go to `/tmp/feed-curator.log`.
+The container has `restart: unless-stopped` + a `/health` healthcheck, so it
+auto-starts on reboot. Native runs are `nohup` and do NOT auto-start.
 
 There is no test suite, linter, or build step configured. The project ships as-is.
 
 ## Database
 
-**MySQL** via SQLAlchemy + `pymysql`. The app connects to the **local Homebrew MySQL 9.3.0** (database `feed_curator`, account `root`). This is a *different* MySQL from the `db-mp` Docker container that backs we-mp-rss.
+**MySQL** via SQLAlchemy + `pymysql`. The app connects to the **`db-mp` Docker MySQL
+container** (database `feed_curator`, account `feed_curator`). This is the *same*
+MySQL instance that backs we-mp-rss (`we_mp_rss` db) — both DBs now live in one
+container after the consolidation (see `docs/deployment.md`).
 
-**Critical — use `127.0.0.1`, not `localhost`, in `DATABASE_URL`.** Two MySQLs coexist on port 3306: the local Homebrew `mysqld` binds `127.0.0.1:3306` (IPv4 only), while Docker `db-mp` binds `*:3306` (incl. IPv6). `localhost` may resolve to IPv6 and hit the wrong server. The working URL targets `127.0.0.1` (real credentials live in `.env`, not here):
-`mysql+pymysql://USER:PASSWORD@127.0.0.1:3306/feed_curator?charset=utf8mb4`
+**Connection differs by where the app runs:**
+- **In container (default):** `DATABASE_URL` targets the service name `db-mp:3306`
+  over the `feed-net` network — no host port, no IPv4/IPv6 ambiguity.
+  `mysql+pymysql://feed_curator:PASSWORD@db-mp:3306/feed_curator?charset=utf8mb4`
+- **Native dev (legacy Homebrew MySQL, now stopped):** if you start the old
+  Homebrew `mysqld`, use `127.0.0.1` not `localhost` — historically two MySQLs
+  shared 3306 (Homebrew on IPv4, db-mp on `*` incl. IPv6) and `localhost` could
+  hit the wrong one. After consolidation only db-mp listens on 3306.
 
-`app/db.py` reads `DATABASE_URL` from the environment. If set → MySQL. If unset → falls back to local SQLite at `data/feed-curator.db`. The old SQLite file is kept as a pre-migration backup; it is not used while `DATABASE_URL` points at MySQL. (History: data started in SQLite → migrated to db-mp's MySQL → migrated again to the local Homebrew MySQL, which is the current home. phpMyAdmin at `:8080` browses this local MySQL.)
+`app/db.py` reads `DATABASE_URL` from the environment. If set → MySQL. If unset →
+falls back to local SQLite at `data/feed-curator.db`. (History: SQLite → db-mp's
+MySQL → local Homebrew MySQL → **back to db-mp** (consolidated, container-native).
+The Homebrew MySQL is stopped but its data is retained for rollback.)
 
 **SQLite → MySQL gotchas already handled in `models.py`** (don't reintroduce them):
 - `Item.content_text` / `content_html` / `description` use `LongText` (= `LONGTEXT` on MySQL, `TEXT` on SQLite). Plain `Text` maps to MySQL `TEXT` (64 KB cap) and truncates long articles — one Anthropic post is ~80 KB of HTML.
@@ -121,24 +141,35 @@ All timestamps are **Unix epoch integers**, not datetimes. Dedup is enforced by 
 
 ## Deployment topology
 
-This app is one of four components running on this Mac. **Two are local processes, two are Docker containers.**
+This app is one of four components running on this Mac. **feed-curator and RSSHub
+are Docker containers; we-mp-rss is a local process; the database is shared in
+the `db-mp` container.**
 
 | Component | Port | How it runs | Auto-restart? |
 |-----------|------|-------------|---------------|
-| feed-curator | 9003 | local uv (Python 3.14), `nohup` | No — manual on reboot |
+| feed-curator | 9003 | Docker `feed-curator` (`restart: unless-stopped`, on `feed-net`) | Yes |
 | we-mp-rss | 9001 | local uv (Python 3.11) at `~/Projects/we-mp-rss`, `nohup` | No — manual on reboot |
 | RSSHub | 9002 | Docker `rsshub` (`--restart always`) | Yes |
-| MySQL (local) | 3306 (127.0.0.1) | Homebrew `mysqld` 9.3.0 — backs **feed-curator** (`feed_curator` db); browse via phpMyAdmin at `:8080` | via brew services |
-| MySQL (docker) | 3306 (\*, incl. IPv6) | Docker `db-mp` (`--restart always`) — backs **we-mp-rss** (`we_mp_rss` db) only | Yes |
+| MySQL (docker) | 3306 (\*, incl. IPv6) | Docker `db-mp` (`--restart always`) — backs **both** `feed_curator` and `we_mp_rss` dbs; also joined to `feed-net` | Yes |
 
-Two MySQL servers share port 3306 on different bind addresses (see Database section) — feed-curator must target `127.0.0.1` to reach the Homebrew one.
+Only db-mp listens on 3306 now (Homebrew MySQL stopped). The feed-curator
+container reaches db-mp by service name over `feed-net`; it reaches we-mp-rss and
+RSSHub (still on the host) via `host.docker.internal`.
 
-`DEEPSEEK_API_KEY` enables AI processing; absent it, the app runs fully except processing is disabled. `DATABASE_URL` selects the database (see Database section). `start.sh` sets both up.
+`DEEPSEEK_API_KEY` enables AI processing; absent it, the app runs fully except processing is disabled. `DATABASE_URL` selects the database (see Database section). `.env` (via compose `env_file`) sets both up.
 
-**Source wiring:** add `wechat` sources with `wewe_base_url: http://localhost:9001`; reach feed-less sites (虎嗅 etc.) by pointing an `rss` source at `http://localhost:9002/<rsshub-route>`.
+**Source wiring:** in-container, `wechat` sources use `wewe_base_url:
+http://host.docker.internal:9001` and `rss` sources point at
+`http://host.docker.internal:9002/<rsshub-route>` (the container can't reach the
+host's `localhost`). Existing source rows were rewritten during migration.
 
 **Gotchas across the stack (not specific to this repo, but you'll hit them):**
-- ghcr.io / docker.io are unreachable here. Pull from domestic mirrors: MySQL via `docker.1ms.run`, RSSHub via `docker.m.daocloud.io` (the 1ms mirror has an `unknown blob` defect for rsshub). GitHub clone over SSH (HTTPS times out). pip via Tsinghua mirror, playwright kernels via `npmmirror.com/mirrors/playwright`.
+- ghcr.io / docker.io are unreachable here. Docker daemon `registry-mirrors` is
+  configured (`~/.docker/daemon.json`: 1ms.run, daocloud, etc.) so plain `docker
+  pull` / `compose build` route through domestic mirrors — large base layers are
+  slow but complete. The Dockerfile also swaps apt to the Tsinghua Debian mirror
+  and installs Python deps via Tsinghua PyPI. GitHub clone over SSH (HTTPS times
+  out). playwright kernels via `npmmirror.com/mirrors/playwright`.
 - we-mp-rss must connect to MySQL via `localhost`, NOT `127.0.0.1` (reverse-DNS makes MySQL match the wrong grant → `Access denied`). It also needs the playwright **webkit** kernel for WeChat QR login, and `env -u USERNAME` on launch (system `USERNAME` overrides the admin login name otherwise).
 
 ## Conventions specific to this codebase

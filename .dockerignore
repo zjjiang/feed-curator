@@ -1,0 +1,12 @@
+# 不进镜像:虚拟环境、版本控制、缓存、本地数据、密钥
+.venv/
+.git/
+.gitignore
+__pycache__/
+*.pyc
+*.egg-info/
+data/*.db
+.env
+docs/
+*.md
+.DS_Store
