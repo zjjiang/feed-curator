@@ -1,22 +1,25 @@
 # feed-curator 部署架构
 
-本文档描述 feed-curator 及其依赖的部署架构、现状痛点，以及容器化改造方案。
+本文档描述 feed-curator 的部署架构与运维。**状态:容器化已落地**
+(2026-06,feed-curator 已容器化,数据库已合并进 db-mp,本机 Homebrew MySQL 已退役)。
 
-> 适用范围：本仓库（feed-curator）。we-mp-rss、RSSHub 为独立项目，本文仅描述与它们的集成关系。
+> 适用范围:本仓库(feed-curator)。we-mp-rss、RSSHub 为独立项目,本文仅描述与它们的集成关系。
 
-## 服务全景
+## 服务全景(当前)
 
-| 服务 | 端口 | 角色 | 现状运行方式 |
-|------|------|------|-------------|
-| feed-curator | 9003 | 采集 + AI 评分 + Web + MCP | 本机 uv + nohup |
+| 服务 | 端口 | 角色 | 运行方式 |
+|------|------|------|---------|
+| feed-curator | 9003 | 采集 + AI 评分 + Web + MCP | **Docker (restart=unless-stopped)** |
 | we-mp-rss | 9001 | 微信公众号采集 | 本机 uv + nohup |
-| RSSHub | 9002 | RSS 桥接（虎嗅等） | Docker (restart=always) |
-| Homebrew MySQL | 3306 (IPv4) | feed-curator 的库 `feed_curator` | brew services |
-| db-mp (Docker MySQL) | 3306 (IPv6) | we-mp-rss 的库 `we_mp_rss` | Docker (restart=always) |
+| RSSHub | 9002 | RSS 桥接(虎嗅等) | Docker (restart=always) |
+| db-mp (Docker MySQL) | 3306 | **`feed_curator` + `we_mp_rss` 两库** | Docker (restart=always) |
 | redis | 6379 | we-mp-rss 任务队列 | Docker |
 | singbox | - | we-mp-rss 抓公众号的代理 | Docker |
+| ~~Homebrew MySQL~~ | ~~3306~~ | ~~已退役(stop,数据保留供回滚)~~ | ~~brew services~~ |
 
-## 现状架构
+## 演进前架构(历史,迁移前)
+
+> 保留作为背景。下面 4 个痛点正是本次容器化要解决的;迁移后均已消除。
 
 ```
                           ┌─────────────────────────────────────────┐
@@ -42,19 +45,18 @@
                           └─────────────────────────────────────────┘
 ```
 
-### 现状痛点
+### 演进前痛点(均已解决)
 
-1. **3306 端口冲突**：Homebrew MySQL（IPv4 `127.0.0.1:3306`）与 db-mp（IPv6 `*:3306`）
-   抢同一端口，连谁取决于 IPv4/IPv6 解析。用 `127.0.0.1` 连到 Homebrew，用 `[::1]` 连到
-   db-mp，极易连错库。
-2. **重启全靠手动**：feed-curator、we-mp-rss 都是 `nohup`，机器重启后服务全部丢失。
-3. **启动姿势是隐性知识**：we-mp-rss 必须 `PORT=9001` + `DB=mysql+pymysql://...@[::1]:3306/...`
-   才能起，无文档，每次靠摸索。
-4. **配置散落**：DB 里微信源 / RSS 源写死了 `localhost:9001` / `localhost:9002`。
+1. **3306 端口冲突**:Homebrew MySQL(IPv4 `127.0.0.1:3306`)与 db-mp(IPv6 `*:3306`)
+   抢同一端口,连谁取决于 IPv4/IPv6 解析。→ 合并到 db-mp 后,3306 仅一个监听。
+2. **重启全靠手动**:feed-curator、we-mp-rss 都是 `nohup`,机器重启后服务全部丢失。
+   → feed-curator 容器 `restart=unless-stopped` 自动拉起。
+3. **启动姿势是隐性知识**:we-mp-rss 必须 `PORT=9001` + `DB=...@[::1]:3306/...` 才能起。
+   → feed-curator 启动收敛到 `docker compose up`,本文档记录全流程。
+4. **配置散落**:DB 里微信源 / RSS 源写死了 `localhost:9001/9002`。
+   → 已批量改写为 `host.docker.internal`。
 
-## 目标架构（容器化 feed-curator，保留本机 MySQL）
-
-决策：仅容器化 feed-curator；数据库继续用本机 Homebrew MySQL；we-mp-rss / RSSHub 维持现状。
+## 当前架构(已落地)
 
 ```
                           ┌──────────────────────────────────────────┐
@@ -74,47 +76,108 @@
                           │  │  │ + we_mp_rss │  一个实例两个库      │   │
                           │  │  └─────────────┘                     │   │
                           │  └────────────────────────────────────┘   │
+                          │         ▲ host.docker.internal              │
+                          │         │                                  │
+                          │   we-mp-rss(:9001)   RSSHub(:9002)          │
+                          │   (本机/容器,经 host.docker.internal 访问)  │
                           │                                            │
-                          │   we-mp-rss(:9001) → db-mp(同实例)          │
-                          │   RSSHub(:9002) 维持现状                    │
-                          │                                            │
-                          │   ✗ Homebrew MySQL 已退役                   │
+                          │   ✗ Homebrew MySQL 已退役(stop)             │
                           └──────────────────────────────────────────┘
 ```
 
-### 关键改动（合并到 db-mp）
+容器连接关系:
+- **数据库**:feed-curator 与 db-mp 同在 `feed-net` 网络,用服务名 `db-mp:3306`
+  直连,不经宿主机端口,无 IPv4/IPv6 之分 —— 3306 冲突从根上消失。
+- **we-mp-rss / RSSHub**:仍在宿主机,容器经 `host.docker.internal` 访问。
 
-数据库统一到 db-mp 这一个 MySQL 实例：`feed_curator` 与 `we_mp_rss` 两个库共存。
-feed-curator 容器与 db-mp 同在 `feed-net` 网络，容器间用服务名 `db-mp` 直连，
-**不再经宿主机端口、不再有 IPv4/IPv6 之分**，3306 冲突从根上消失。
+## 日常运维
 
-1. **迁移数据**：把 Homebrew MySQL 的 `feed_curator` 库（42.8MB，约 3968 篇）
-   `mysqldump` 导出 → 导入 db-mp。迁移后校验行数一致再退役旧库。
-2. **建库内账号**：在 db-mp 建 `feed_curator` 库 + 专用账号
-   `feed_curator@'%'`（仅授权该库）。
-3. **容器内连接**：`DATABASE_URL=mysql+pymysql://feed_curator:***@db-mp:3306/feed_curator`
-   （服务名 `db-mp`，非 localhost/IP）。
-4. **改写源 base_url**：feed-curator 容器连 we-mp-rss / RSSHub 仍走宿主机，
-   用 `host.docker.internal`：
-   - 微信源：环境变量 `WEWE_BASE_URL=http://host.docker.internal:9001` 统一覆盖
-     （wewe_client 已支持），免逐条改 DB。
-   - RSSHub 源：批量更新 DB 中 `localhost:9002` → `host.docker.internal:9002`。
-5. **退役 Homebrew MySQL**：校验迁移无误后 `brew services stop mysql`。
+```bash
+cd ~/Projects/feed-curator
+docker compose up -d --build      # 起/更新容器(改了代码后重建)
+docker compose logs -f            # 看日志
+docker compose restart            # 重启
+docker compose down               # 停并删容器(数据在 db-mp,不受影响)
+curl http://localhost:9003/health # {"status":"ok"}
+```
 
-### 运维基线（容器化随附）
+容器带 `restart: unless-stopped`,宿主机重启后自动拉起。
 
-- `restart: unless-stopped`：宿主机重启后自动拉起，告别手动 nohup。
-- `healthcheck`：探 `/health`，容器异常自动重启；`depends_on` db-mp 健康后再起。
-- `.dockerignore`：排除 `.venv`、`.git`、`data/*.db` 等，镜像更小。
-- `.env` 注入：敏感配置（DEEPSEEK_API_KEY、DB 密码）经 env_file 注入，不进镜像。
-- 镜像基于 `python:3.14-slim` + uv，多阶段构建。
+## 从零重建(灾备 / 换机)
+
+> 关键前提:本网络下境外 registry 不可达,**必须先配国内加速**,否则镜像基础层拉不下来。
+
+1. **配 Docker registry 加速器**(系统级,一次性)。`~/.docker/daemon.json` 加:
+   ```json
+   "registry-mirrors": [
+     "https://docker.1ms.run",
+     "https://docker.m.daocloud.io",
+     "https://dockerproxy.com",
+     "https://docker.nju.edu.cn"
+   ]
+   ```
+   改完重启 Docker Desktop,`docker info | grep -A4 "Registry Mirrors"` 确认生效。
+
+2. **建网络并接入 db-mp**:
+   ```bash
+   docker network create feed-net
+   docker network connect feed-net db-mp
+   ```
+
+3. **在 db-mp 建库 + 账号**(若是全新 db-mp):
+   ```sql
+   CREATE DATABASE feed_curator CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+   CREATE USER 'feed_curator'@'%' IDENTIFIED BY '<密码>';
+   GRANT ALL PRIVILEGES ON feed_curator.* TO 'feed_curator'@'%';
+   ```
+
+4. **配 `.env`**(从 `.env.example` 复制):
+   ```
+   DATABASE_URL=mysql+pymysql://feed_curator:<密码>@db-mp:3306/feed_curator?charset=utf8mb4
+   WEWE_BASE_URL=http://host.docker.internal:9001
+   DEEPSEEK_API_KEY=sk-...
+   ```
+
+5. **构建并启动**:`docker compose up -d --build`
+
+### 镜像构建的网络要点(踩过的坑)
+
+- 基础镜像 `python:3.14-slim-bookworm` 经 daemon 的 registry-mirrors 拉取,
+  大层(~28MB debian rootfs)**慢但能完成**(约 13 分钟);多个并发拉取会抢带宽,
+  反而更慢 —— 让单个构建独占。
+- `Dockerfile` 内已把 **apt 换清华源**(`mirrors.tuna.tsinghua.edu.cn`,否则
+  `deb.debian.org` 拉 main Packages 索引会卡死)、**PyPI 走清华源**。
+- 直接 `docker pull docker.io/...` 大层会零字节卡死;配了 daemon mirror 后用
+  **裸镜像名**(`FROM python:3.14-slim-bookworm`)让 daemon 自动路由到加速器。
+
+## 数据备份
+
+db-mp 现在是唯一数据库,重要性上升。备份其数据卷 / 逻辑导出:
+
+```bash
+# 逻辑备份 feed_curator 库
+docker exec db-mp mysqldump -uroot -p<rootpass> --single-transaction \
+  --default-character-set=utf8mb4 --no-tablespaces feed_curator > feed_curator_$(date +%F).sql
+```
 
 ## 风险 / 回滚
 
-- **迁移期数据**：导出—导入期间若仍在抓取，可能丢极少量增量。建议迁移时先停
-  feed-curator 抓取（或挑空闲时段），导入后比对行数。
-- **回滚**：保留 Homebrew MySQL 数据不立即删除，仅 `stop`。若容器方案有问题，
-  改回 `.env` 指向本机 MySQL 并 `brew services start mysql` 即可恢复。
-- db-mp 成为唯一数据库，重要性上升。其数据卷 `db_mp_data` 应纳入定期备份。
+- **回滚到本机 MySQL**:Homebrew MySQL 数据未删,仅 `stop`。如需回退:
+  `brew services start mysql`,把 `.env` 的 `DATABASE_URL` 改回
+  `mysql+pymysql://root:***@127.0.0.1:3306/feed_curator?charset=utf8mb4`,本机直跑
+  (`./start.sh`)或在 compose 里用 `host.docker.internal:3306`。
+- db-mp 成为单点,数据卷 `db_mp_data` 应纳入定期备份(见上)。
+- 老数据保留期:确认容器稳定运行一段时间后,可手动清理 Homebrew MySQL 的旧
+  `feed_curator` 库(`brew services start mysql` → `DROP DATABASE` → 再 stop)。
+
+## 迁移记录(2026-06)
+
+- 从本机 Homebrew MySQL 9.3.0 迁出 `feed_curator` 库(约 3968 篇,26MB dump),
+  导入 db-mp;行数校验一致(items 3968 / sources 30 / jobs 346 / settings 1)。
+- 在 db-mp 建专用账号 `feed_curator@'%'`(仅授权该库,不放开 root)。
+- 改写 DB 中 17 个源的 base_url:微信源 9 个 `localhost:9001` + RSS 源 8 个
+  `localhost:9002` → `host.docker.internal`(因 wechat 适配器以源 config 里的
+  `wewe_base_url` 优先,环境变量覆盖不到抓取路径,故必须改 DB)。
+- 退役 Homebrew MySQL(`brew services stop mysql`),3306 仅剩 db-mp 监听。
 
 
