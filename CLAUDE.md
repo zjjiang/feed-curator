@@ -14,9 +14,12 @@ The 2026-09 rebuild (`openspec/changes/rebuild-domain-model/`) replaced the old 
   change (`openspec new change "<name>"` → proposal → specs → design → tasks) and
   gets implemented by working through its task list (`/opsx:apply`). Do not
   implement features ad hoc outside a change.
-- **Never push directly to `main`.** Push a feature branch, open a PR, merge it,
-  then sync local `main`. `git push origin main` (or any direct push to `main`)
-  is forbidden — even when the user says "push 一个版本", do it via PR.
+- **Never push directly to `main`.** Push a feature branch and open a PR;
+  `git push origin main` (or any direct push to `main`) is forbidden — even when
+  the user says "push 一个版本", do it via PR.
+- **PRs are merged by the user, after their review.** Open the PR, post the link,
+  and stop — never merge it yourself. The user reviews and merges; syncing local
+  `main` afterwards (`git pull`) is fine.
 
 ## Commands
 
