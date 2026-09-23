@@ -1,0 +1,70 @@
+{% extends "layout.html" %}
+{% block title %}领域视图 · feed-curator{% endblock %}
+{% block body %}
+<div class="filters">
+  <select onchange="p = new URLSearchParams(location.search); this.value ? p.set('domain_id', this.value) : p.delete('domain_id'); p.delete('page'); location = '/?' + p.toString()">
+    <option value="">全部领域</option>
+    {% for d in domains %}
+    <option value="{{ d.id }}" {% if domain_id == d.id %}selected{% endif %}>{{ d.name }}{% if not d.enabled %}(停用){% endif %}</option>
+    {% endfor %}
+  </select>
+  <select onchange="p = new URLSearchParams(location.search); this.value ? p.set('kind', this.value) : p.delete('kind'); if (this.value && this.value !== 'article') p.delete('kind_tag'); p.delete('page'); location = '/?' + p.toString()">
+    <option value="">全部类型</option>
+    <option value="article" {% if kind == 'article' %}selected{% endif %}>文章</option>
+    <option value="paper" {% if kind == 'paper' %}selected{% endif %}>论文</option>
+    <option value="repo" {% if kind == 'repo' %}selected{% endif %}>项目</option>
+  </select>
+  {% if not kind or kind == 'article' %}
+  <select onchange="p = new URLSearchParams(location.search); this.value ? p.set('kind_tag', this.value) : p.delete('kind_tag'); p.delete('page'); location = '/?' + p.toString()">
+    <option value="">全部子类</option>
+    <option value="tech" {% if kind_tag == 'tech' %}selected{% endif %}>技术</option>
+    <option value="business" {% if kind_tag == 'business' %}selected{% endif %}>商业</option>
+  </select>
+  {% endif %}
+  <select onchange="p = new URLSearchParams(location.search); p.set('sort', this.value); p.delete('page'); location = '/?' + p.toString()">
+    <option value="time" {% if sort == 'time' %}selected{% endif %}>按时间</option>
+    <option value="stars" {% if sort == 'stars' %}selected{% endif %}>按星级</option>
+  </select>
+  <label class="muted"><input type="checkbox" {% if favorites %}checked{% endif %}
+    onchange="p = new URLSearchParams(location.search); this.checked ? p.set('favorites', '1') : p.delete('favorites'); p.delete('page'); location = '/?' + p.toString()"> 只看收藏</label>
+  <span class="muted">{{ total }} 篇{% if domain_name %} · {{ domain_name }}{% endif %}</span>
+</div>
+
+{% for d in docs %}
+<div class="card">
+  <div>
+    <span class="tag kind-{{ d.kind }}">{{ {'paper':'论文','repo':'项目','article':'文章'}[d.kind] }}</span>
+    {% if d.kind_tag %}<span class="tag">{{ '技术' if d.kind_tag == 'tech' else '商业' }}</span>{% endif %}
+    {% for name in d.domains %}<span class="tag domain">{{ name }}</span>{% endfor %}
+    {% if d.stars %}<span class="stars">{{ '★' * d.stars }}{{ '☆' * (5 - d.stars) }}</span>{% endif %}
+    <span class="muted" style="float:right">{{ d.time_fmt }}</span>
+  </div>
+  <div style="margin: 4px 0;">
+    <a class="title-link" href="/docs/{{ d.id }}">{{ d.title }}</a>
+  </div>
+  {% if d.summary %}<div class="muted">{{ d.summary }}</div>{% endif %}
+  <div style="margin-top: 6px;">
+    <a class="tag" href="{{ d.url }}" target="_blank" rel="noopener">原文 ↗</a>
+    <form class="inline" method="post" action="/docs/{{ d.id }}/favorite">
+      <button title="收藏">{{ '♥ 已藏' if d.is_favorite else '♡ 收藏' }}</button>
+    </form>
+    {% if not d.is_read %}
+    <form class="inline" method="post" action="/docs/{{ d.id }}/read">
+      <button>标为已读</button>
+    </form>
+    {% endif %}
+    <form class="inline" method="post" action="/docs/{{ d.id }}/dismiss">
+      <button title="忽略后不在默认列表,内容与判定保留">忽略</button>
+    </form>
+  </div>
+</div>
+{% else %}
+<div class="card muted">没有符合条件的文档。</div>
+{% endfor %}
+
+<div class="pager">
+  {% if page > 1 %}<a class="btn" href="?{{ qs_prefix }}&page={{ page - 1 }}">上一页</a>{% endif %}
+  <span class="muted">{{ page }} / {{ total_pages }}</span>
+  {% if page < total_pages %}<a class="btn" href="?{{ qs_prefix }}&page={{ page + 1 }}">下一页</a>{% endif %}
+</div>
+{% endblock %}

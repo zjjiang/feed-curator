@@ -1,7 +1,7 @@
 import os
 import time
 from pathlib import Path
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
 from app.models import Base
@@ -33,38 +33,31 @@ IS_SQLITE = engine.dialect.name == "sqlite"
 
 def init_db() -> None:
     Base.metadata.create_all(engine)
-    _migrate()
+    _cleanup_zombie_runs()
+    _report_orphans()
 
 
-def _migrate() -> None:
-    """轻量迁移:create_all 不会改已有表,这里手动补列 / 处理语义变更。
-
-    - 给从旧 schema 升级的 SQLite 库补 ai_keypoints 列(MySQL 是新建库,不需要)。
-    - 进程重启时把残留的 running 任务标记为 failed,否则单任务锁的 DB 状态永远卡住。
-    """
-    insp = inspect(engine)
-    tables = insp.get_table_names()
-    if "items" not in tables:
-        return
-
+def _cleanup_zombie_runs() -> None:
+    """进程重启时把残留的 running 任务标记为 failed,否则单任务锁的 DB 状态永远卡住。"""
     with engine.begin() as conn:
-        # 仅 SQLite 旧库需要补列;MySQL 由 create_all 按最新 schema 建表,天然就有该列。
-        if IS_SQLITE:
-            cols = {c["name"] for c in insp.get_columns("items")}
-            if "ai_keypoints" not in cols:
-                conn.execute(text("ALTER TABLE items ADD COLUMN ai_keypoints TEXT"))
-                conn.execute(text(
-                    "UPDATE items SET ai_score=NULL, ai_summary=NULL, "
-                    "ai_tags=NULL, ai_scored_at=NULL"
-                ))
+        conn.execute(
+            text("UPDATE run_log SET status='failed', error='进程重启,任务中断', "
+                 "finished_at=:now WHERE kind='analyze' AND status='running'"),
+            {"now": int(time.time())},
+        )
 
-        # 清理重启遗留的僵尸任务(方言无关:用参数绑定传当前时间戳)
-        if "jobs" in tables:
-            conn.execute(
-                text("UPDATE jobs SET status='failed', error='进程重启,任务中断', "
-                     "finished_at=:now WHERE status='running'"),
-                {"now": int(time.time())},
-            )
+
+def _report_orphans() -> None:
+    """启动时报告孤儿 doc 数量(只报告不清理——孤儿意味着写入路径有 bug)。"""
+    from app.writer import check_orphans
+
+    db = SessionLocal()
+    try:
+        n = check_orphans(db)
+        if n:
+            print(f"[init_db] 警告:发现 {n} 个孤儿 doc(kind 有值但实体表缺行),请排查写入路径")
+    finally:
+        db.close()
 
 
 def get_session():

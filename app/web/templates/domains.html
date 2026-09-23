@@ -1,0 +1,43 @@
+{% extends "layout.html" %}
+{% block title %}领域 · 管理后台 · feed-curator{% endblock %}
+{% block body %}
+<h2>领域</h2>
+{% if request.query_params.get('error') == 'dup' %}
+<div class="error-flash">领域名重复,未创建。</div>
+{% endif %}
+
+{% for d in domains %}
+<div class="card">
+  <div>
+    <strong>{{ d.name }}</strong>
+    {% if d.enabled %}<span class="tag">启用中</span>{% else %}<span class="tag" style="background:#eee">已停用</span>{% endif %}
+    <span class="muted">{{ d.doc_count }} 篇文档</span>
+  </div>
+  <form method="post" action="/admin/domains/{{ d.id }}/update" style="margin-top:8px">
+    <div class="muted">描述(喂给 AI 帮助判定)</div>
+    <textarea name="description" rows="2">{{ d.description or '' }}</textarea>
+    <div class="muted" style="margin-top:6px">关键词(逗号分隔;派生渠道的查询条件实时由此生成)</div>
+    <input type="text" name="keywords" value="{{ d.keywords_str }}">
+    <div style="margin-top:8px">
+      <button class="primary">保存</button>
+      <button name="toggle_enabled" value="1">{{ '停用' if d.enabled else '启用' }}</button>
+    </div>
+  </form>
+  {% if not d.enabled %}<div class="muted" style="margin-top:4px">停用后不参与新判定,既有归属保留。</div>{% endif %}
+</div>
+{% endfor %}
+
+<h2>新建领域</h2>
+<div class="card">
+  <form method="post" action="/admin/domains/add">
+    <input type="text" name="name" placeholder="领域名(唯一)">
+    <div style="margin-top:8px">
+      <textarea name="description" rows="2" placeholder="描述:这个领域追踪什么?"></textarea>
+    </div>
+    <div style="margin-top:8px">
+      <input type="text" name="keywords" placeholder="关键词,逗号分隔">
+    </div>
+    <div style="margin-top:8px"><button class="primary">创建</button></div>
+  </form>
+</div>
+{% endblock %}

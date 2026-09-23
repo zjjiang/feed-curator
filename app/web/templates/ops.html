@@ -1,0 +1,56 @@
+{% extends "layout.html" %}
+{% block title %}概览 · 管理后台 · feed-curator{% endblock %}
+{% block body %}
+<div class="summary">
+  <div class="card"><div class="num">{{ summary.docs_total }}</div><div class="muted">文档</div>
+    <div class="muted">文{{ summary.articles }} / 论{{ summary.papers }} / 库{{ summary.repos }}</div></div>
+  <div class="card"><div class="num">{{ summary.fulltext }}</div><div class="muted">正文充足(≥500字)</div></div>
+  <div class="card"><div class="num">{{ summary.pending_analyze }}</div><div class="muted">待判定</div></div>
+  <div class="card"><div class="num">{{ summary.fetch_ok_24h }}<span style="font-size:13px;color:var(--muted)"> / {{ summary.fetch_fail_24h }}</span></div>
+    <div class="muted">24h 采集 成功/失败</div></div>
+  <div class="card"><div class="num" style="color: {{ 'var(--err)' if summary.orphan_docs else 'var(--ok)' }}">{{ summary.orphan_docs }}</div><div class="muted">孤儿 doc</div></div>
+</div>
+
+{% if summary.running %}
+<h2>进行中</h2>
+{% for r in summary.running %}
+<div class="card">
+  <strong>{{ {'fetch':'采集','analyze':'AI 判定','fulltext':'正文补全'}.get(r.kind, r.kind) }}</strong>
+  {{ r.pipe_name or '' }} · {{ r.processed }}/{{ r.total }}
+  {% if r.kind == 'analyze' %}
+  <form class="inline" method="post" action="/api/runs/{{ r.id }}/cancel">
+    <button>取消</button>
+  </form>
+  {% endif %}
+</div>
+{% endfor %}
+{% endif %}
+
+<h2>手动操作</h2>
+<div class="card filters">
+  <form class="inline" method="post" action="/api/analyze/run">
+    <button class="primary">运行 AI 判定</button>
+  </form>
+  <form class="inline" method="post" action="/api/fulltext/run">
+    <button>补全一批正文(50 篇)</button>
+  </form>
+  <span class="muted">判定需要配置 DEEPSEEK_API_KEY;补全限速 1 秒/篇。</span>
+</div>
+
+<h2>最近运行</h2>
+<table>
+<tr><th>#</th><th>类型</th><th>对象</th><th>触发</th><th>状态</th><th>进度</th><th>耗时</th><th>时间</th></tr>
+{% for r in run_rows %}
+<tr>
+  <td class="muted">{{ r.id }}</td>
+  <td><span class="tag">{{ {'fetch':'采集','analyze':'判定','fulltext':'补全'}.get(r.kind, r.kind) }}</span></td>
+  <td>{{ r.pipe_name }}</td>
+  <td class="muted">{{ r.trigger }}</td>
+  <td class="status-{{ r.status }}">{{ r.status }}</td>
+  <td>{{ r.counts }}{% if r.error %}<div class="muted" style="color:var(--err)">{{ r.error[:60] }}</div>{% endif %}</td>
+  <td class="muted">{{ r.duration }}</td>
+  <td class="muted">{{ r.created_fmt }}</td>
+</tr>
+{% endfor %}
+</table>
+{% endblock %}

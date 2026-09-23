@@ -1,0 +1,71 @@
+{% extends "layout.html" %}
+{% block title %}{{ doc.title }} · feed-curator{% endblock %}
+{% block body %}
+<div class="card">
+  <div>
+    <span class="tag kind-{{ doc.kind }}">{{ kind_label }}</span>
+    {% if kind_tag %}<span class="tag">{{ '技术' if kind_tag == 'tech' else '商业' }}</span>{% endif %}
+    {% for name in domain_names %}<span class="tag domain">{{ name }}</span>{% endfor %}
+    {% if analysis and analysis.stars %}<span class="stars">{{ '★' * analysis.stars }}{{ '☆' * (5 - analysis.stars) }}</span>{% endif %}
+    <span class="muted" style="float:right">{{ time_fmt }}</span>
+  </div>
+  <h1 style="font-size: 20px; margin: 8px 0;">{{ doc.title }}</h1>
+  <div class="muted">
+    <a href="{{ doc.url }}" target="_blank" rel="noopener">{{ doc.url }} ↗</a>
+    {% if word_count %} · 约 {{ word_count }} 字{% endif %}
+    {% if meta and doc.kind == 'repo' and meta.stars %} · ★{{ meta.stars }} {{ meta.language or '' }}{% endif %}
+    {% if meta and doc.kind == 'paper' %} · arXiv {{ meta.arxiv_id or '' }}{% endif %}
+  </div>
+  <div style="margin-top: 10px;">
+    <form class="inline" method="post" action="/docs/{{ doc.id }}/favorite">
+      <button>{{ '♥ 已藏' if reading and reading.is_favorite else '♡ 收藏' }}</button>
+    </form>
+    {% if not (reading and reading.is_read) %}
+    <form class="inline" method="post" action="/docs/{{ doc.id }}/read">
+      <button>标为已读</button>
+    </form>
+    {% else %}<span class="tag">已读</span>{% endif %}
+    <form class="inline" method="post" action="/docs/{{ doc.id }}/dismiss">
+      <button onclick="return confirm('忽略后不出现在默认列表(内容与判定保留),确认?')">忽略</button>
+    </form>
+  </div>
+</div>
+
+{% if analysis %}
+<div class="card">
+  <h2 style="margin-top: 0;">AI 判定</h2>
+  <p>{{ analysis.summary }}</p>
+  {% if keypoints %}
+  <ul>{% for k in keypoints %}<li>{{ k }}</li>{% endfor %}</ul>
+  {% endif %}
+  <div class="muted">{{ analysis.model }} · {{ analysis.prompt_version }} · {{ analysis.created_at | fmt_time }}</div>
+</div>
+{% endif %}
+
+<div class="card">
+  <h2 style="margin-top: 0;">我的笔记</h2>
+  <form method="post" action="/docs/{{ doc.id }}/rating" class="filters">
+    <span class="muted">评分</span>
+    <select name="rating" style="width:auto">
+      {% for r in [1,2,3,4,5] %}
+      <option value="{{ r }}" {% if reading and reading.rating == r %}selected{% endif %}>{{ '★' * r }}</option>
+      {% endfor %}
+      {% if not (reading and reading.rating) %}<option selected disabled>未评</option>{% endif %}
+    </select>
+    <button>保存评分</button>
+  </form>
+  <form method="post" action="/docs/{{ doc.id }}/note">
+    <textarea name="note" rows="3" placeholder="笔记…">{{ reading.note if reading and reading.note else '' }}</textarea>
+    <div style="margin-top: 6px;"><button>保存笔记</button></div>
+  </form>
+</div>
+
+{% if content %}
+<div class="card">
+  <h2 style="margin-top: 0;">正文</h2>
+  <pre class="content">{{ content[:20000] }}{% if content | length > 20000 %}
+
+…(正文过长,截断显示){% endif %}</pre>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,358 +1,494 @@
+"""服务端渲染页面。
+
+阅读面(/ 订阅流、/docs/{id} 文档详情)与管理后台(/admin 概览、
+/admin/pipes 渠道、/admin/domains 领域)分离;表单 POST 后 303 重定向。
+与 JSON API(main.py)分离。
+"""
+
 import json
 import time
 from datetime import datetime
 
-from fastapi import APIRouter, Request, Depends
+from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.db import get_session
-from app.models import Source, Item, SyncLog
 from app.jobs.fetcher import fetch_source
+from app.models import (Analysis, Article, Doc, Domain, Membership, Pipe,
+                        Reading, Repo, RunLog)
+from app.utils.json_str import json_dump
 
 templates = Jinja2Templates(directory="app/web/templates")
 router = APIRouter()
+
+PER_PAGE = 50
 
 
 def _fmt_time(ts: int | None) -> str:
     if not ts:
         return "-"
     dt = datetime.fromtimestamp(ts)
-    now = datetime.now()
-    diff = now - dt
+    diff = datetime.now() - dt
     if diff.days == 0:
         return dt.strftime("%H:%M")
-    elif diff.days < 7:
+    if diff.days < 7:
         return f"{diff.days}天前"
     return dt.strftime("%m-%d")
 
 
-def _fmt_age(seconds: int | None) -> str:
-    """把"距今多少秒"格式化成人类可读的相对时长。"""
-    if seconds is None:
-        return "从未"
-    if seconds < 60:
-        return f"{seconds}秒前"
-    if seconds < 3600:
-        return f"{seconds // 60}分钟前"
-    if seconds < 86400:
-        return f"{seconds // 3600}小时前"
-    return f"{seconds // 86400}天前"
+templates.env.filters["fmt_time"] = _fmt_time
+
+
+# 旧路径重定向(书签兼容)
+@router.get("/ops")
+def ops_redirect():
+    return RedirectResponse("/admin", status_code=307)
+
+
+@router.get("/pipes")
+def pipes_redirect():
+    return RedirectResponse("/admin/pipes", status_code=307)
+
+
+@router.get("/domains")
+def domains_redirect():
+    return RedirectResponse("/admin/domains", status_code=307)
+
+
+def _domain_map(db: Session) -> dict[int, str]:
+    return {d.id: d.name for d in db.query(Domain).all()}
+
+
+# ============ 订阅(首页) ============
+
+
+def _latest_ok_analysis_ids(db: Session):
+    """每篇文档最新一条 ok 判定的 analysis.id。"""
+    latest = (
+        db.query(Analysis.doc_id, func.max(Analysis.id).label("aid"))
+        .filter(Analysis.status == "ok")
+        .group_by(Analysis.doc_id)
+        .subquery()
+    )
+    return latest
 
 
 @router.get("/", response_class=HTMLResponse)
-def items_page(
+def index_page(
     request: Request,
     page: int = 1,
-    source_id: int | None = None,
-    category: str | None = None,
+    domain_id: int | None = None,
+    kind: str | None = None,
+    kind_tag: str | None = None,
+    favorites: int = 0,
     sort: str = "time",
     db: Session = Depends(get_session),
 ):
-    per_page = 50
-    offset = (page - 1) * per_page
+    q = (
+        db.query(Doc)
+        .outerjoin(Reading, Reading.doc_id == Doc.id)
+        .filter(func.coalesce(Reading.is_dismissed, 0) == 0)
+    )
+    if domain_id is not None:
+        q = q.join(Membership, Membership.doc_id == Doc.id) \
+            .filter(Membership.domain_id == domain_id)
+    if kind:
+        q = q.filter(Doc.kind == kind)
+    if kind_tag:
+        q = q.join(Article, Article.id == Doc.id) \
+            .filter(Article.kind_tag == kind_tag)
+    if favorites:
+        q = q.filter(Reading.is_favorite == 1)
 
-    sources = db.query(Source).order_by(Source.name).all()
-    source_map = {s.id: s.name for s in sources}
-
-    q = db.query(Item)
-    if source_id:
-        q = q.filter(Item.source_id == source_id)
-    if category:
-        # ai_tags 存的是 JSON 数组字符串,用 LIKE 粗筛(分类名带引号包裹避免子串误匹配)
-        q = q.filter(Item.ai_tags.like(f'%"{category}"%'))
+    if sort == "stars":
+        latest = _latest_ok_analysis_ids(db)
+        q = q.outerjoin(latest, latest.c.doc_id == Doc.id) \
+            .outerjoin(Analysis, Analysis.id == latest.c.aid)
+        q = q.order_by(func.coalesce(Analysis.stars, 0).desc(),
+                       Doc.sort_time.desc(), Doc.id.desc())
+    else:
+        q = q.order_by(Doc.sort_time.desc(), Doc.id.desc())
 
     total = q.count()
-    if sort == "score":
-        # 按星级降序;未处理(NULL)和失败(-1)排到最后,同档再按发布时间倒序。
-        # 不过滤未处理文章,否则待处理居多时列表会几乎空掉。
-        score_key = func.coalesce(Item.ai_score, 0)
-        items_raw = (
-            q.order_by(score_key.desc(), Item.published_at.desc())
-            .offset(offset).limit(per_page).all()
-        )
-    else:
-        items_raw = q.order_by(Item.published_at.desc()).offset(offset).limit(per_page).all()
+    docs = q.offset((page - 1) * PER_PAGE).limit(PER_PAGE).all()
+    rows = _decorate_docs(db, docs)
+    dmap = _domain_map(db)
 
-    items = []
-    for i in items_raw:
-        preview_text = (i.content_text or i.description or "")[:300]
-        meta = json.loads(i.meta) if i.meta else {}
-        items.append({
-            "id": i.id,
-            "title": i.title,
-            "url": i.url,
-            "author": i.author,
-            "source_type": i.source_type,
-            "source_name": source_map.get(i.source_id, "?"),
-            "word_count": i.word_count,
-            "published_at_fmt": _fmt_time(i.published_at),
-            "preview": preview_text,
-            "stars": meta.get("stars"),
-            "forks": meta.get("forks"),
-            "language": meta.get("language"),
-            "ai_score": i.ai_score,
-            "ai_summary": i.ai_summary,
-            "ai_keypoints": json.loads(i.ai_keypoints) if i.ai_keypoints else [],
-            "ai_tags": json.loads(i.ai_tags) if i.ai_tags else [],
-            "is_read": i.is_read,
-            "is_favorite": i.is_favorite,
-        })
+    qs_params = [("domain_id", domain_id), ("kind", kind),
+                 ("kind_tag", kind_tag), ("sort", sort if sort != "time" else None),
+                 ("favorites", favorites or None)]
+    qs_prefix = "&".join(f"{k}={v}" for k, v in qs_params if v is not None)
 
-    total_pages = max(1, (total + per_page - 1) // per_page)
-
-    from app.ai.scorer import get_categories
-    categories = get_categories(db)
-
-    return templates.TemplateResponse(request, "items.html", {
-        "items": items,
-        "sources": [{"id": s.id, "name": s.name, "type": s.type} for s in sources],
-        "source_id": source_id,
-        "categories": categories,
-        "category": category,
+    return templates.TemplateResponse(request, "index.html", {
+        "docs": rows,
+        "domains": db.query(Domain).order_by(Domain.id).all(),
+        "domain_id": domain_id,
+        "domain_name": dmap.get(domain_id),
+        "kind": kind,
+        "kind_tag": kind_tag,
+        "favorites": favorites,
+        "sort": sort,
         "total": total,
         "page": page,
-        "total_pages": total_pages,
-        "sort": sort,
+        "qs_prefix": qs_prefix,
+        "total_pages": max(1, (total + PER_PAGE - 1) // PER_PAGE),
     })
 
 
-@router.get("/dashboard", response_class=HTMLResponse)
-def dashboard_page(request: Request, db: Session = Depends(get_session)):
+def _decorate_docs(db: Session, docs: list[Doc]) -> list[dict]:
+    doc_ids = [d.id for d in docs]
+    if not doc_ids:
+        return []
+
+    analyses = {
+        a.doc_id: a
+        for a in db.query(Analysis)
+        .filter(Analysis.doc_id.in_(doc_ids), Analysis.status == "ok")
+        .order_by(Analysis.created_at.desc(), Analysis.id.desc())
+        .all()
+    }
+    readings = {
+        r.doc_id: r for r in db.query(Reading).filter(Reading.doc_id.in_(doc_ids)).all()
+    }
+    memberships: dict[int, list[str]] = {}
+    dmap = _domain_map(db)
+    for m in db.query(Membership).filter(Membership.doc_id.in_(doc_ids)).all():
+        memberships.setdefault(m.doc_id, []).append(dmap.get(m.domain_id, "?"))
+    kind_tags = {
+        a.id: a.kind_tag
+        for a in db.query(Article).filter(Article.id.in_(doc_ids)).all()
+    }
+
+    rows = []
+    for d in docs:
+        a = analyses.get(d.id)
+        r = readings.get(d.id)
+        rows.append({
+            "id": d.id, "kind": d.kind, "title": d.title, "url": d.url,
+            "time_fmt": _fmt_time(d.sort_time),
+            "kind_tag": kind_tags.get(d.id),
+            "domains": memberships.get(d.id, []),
+            "stars": a.stars if a else None,
+            "summary": a.summary if a else None,
+            "is_read": bool(r.is_read) if r else False,
+            "is_favorite": bool(r.is_favorite) if r else False,
+        })
+    return rows
+
+
+@router.get("/docs/{doc_id}", response_class=HTMLResponse)
+def doc_page(request: Request, doc_id: int, db: Session = Depends(get_session)):
+    doc = db.get(Doc, doc_id)
+    if not doc:
+        return HTMLResponse("文档不存在", status_code=404)
+
+    from app.models import Paper
+
+    entity_model = {"paper": Paper, "repo": Repo, "article": Article}[doc.kind]
+    entity = db.get(entity_model, doc_id)
+
+    content_field = {"paper": "abstract", "repo": "readme_text",
+                     "article": "content_text"}[doc.kind]
+    content = (getattr(entity, content_field) or "") if entity else ""
+
+    analysis = (
+        db.query(Analysis)
+        .filter(Analysis.doc_id == doc_id, Analysis.status == "ok")
+        .order_by(Analysis.created_at.desc(), Analysis.id.desc())
+        .first()
+    )
+    keypoints = json.loads(analysis.keypoints) if analysis and analysis.keypoints else []
+    domains = [m for m in db.query(Membership).filter_by(doc_id=doc_id).all()]
+    dmap = _domain_map(db)
+    reading = db.get(Reading, doc_id)
+
+    word_count = getattr(entity, "word_count", None) if entity else None
+
+    return templates.TemplateResponse(request, "doc.html", {
+        "doc": doc,
+        "kind_label": {"paper": "论文", "repo": "项目", "article": "文章"}[doc.kind],
+        "kind_tag": getattr(entity, "kind_tag", None) if entity else None,
+        "meta": entity,
+        "content": content,
+        "analysis": analysis,
+        "keypoints": keypoints,
+        "domain_names": [dmap.get(m.domain_id, "?") for m in domains],
+        "reading": reading,
+        "word_count": word_count,
+        "time_fmt": _fmt_time(doc.sort_time),
+    })
+
+
+# ============ 阅读状态操作 ============
+
+
+def _apply_reading(db: Session, doc_id: int, **fields) -> None:
+    reading = db.get(Reading, doc_id)
+    if reading is None:
+        reading = Reading(doc_id=doc_id, updated_at=int(time.time()))
+        db.add(reading)
+    for key, value in fields.items():
+        setattr(reading, key, value)
+    reading.updated_at = int(time.time())
+    db.commit()
+
+
+@router.post("/docs/{doc_id}/read")
+def mark_read_page(doc_id: int, request: Request, db: Session = Depends(get_session)):
+    _apply_reading(db, doc_id, is_read=1)
+    return RedirectResponse(request.headers.get("referer") or "/", status_code=303)
+
+
+@router.post("/docs/{doc_id}/favorite")
+def toggle_favorite_page(doc_id: int, request: Request,
+                         db: Session = Depends(get_session)):
+    reading = db.get(Reading, doc_id)
+    current = bool(reading.is_favorite) if reading else False
+    _apply_reading(db, doc_id, is_favorite=0 if current else 1)
+    return RedirectResponse(request.headers.get("referer") or "/", status_code=303)
+
+
+@router.post("/docs/{doc_id}/dismiss")
+def dismiss_page(doc_id: int, request: Request, db: Session = Depends(get_session)):
+    _apply_reading(db, doc_id, is_dismissed=1)
+    return RedirectResponse("/", status_code=303)
+
+
+@router.post("/docs/{doc_id}/rating")
+def rating_page(doc_id: int, request: Request, rating: int = Form(...),
+                db: Session = Depends(get_session)):
+    if 1 <= rating <= 5:
+        _apply_reading(db, doc_id, rating=rating)
+    return RedirectResponse(f"/docs/{doc_id}", status_code=303)
+
+
+@router.post("/docs/{doc_id}/note")
+def note_page(doc_id: int, request: Request, note: str = Form(""),
+              db: Session = Depends(get_session)):
+    _apply_reading(db, doc_id, note=note.strip() or None)
+    return RedirectResponse(f"/docs/{doc_id}", status_code=303)
+
+
+# ============ 管理后台:领域 ============
+
+
+@router.get("/admin/domains", response_class=HTMLResponse)
+def domains_page(request: Request, db: Session = Depends(get_session)):
+    domains = []
+    counts = dict(
+        db.query(Membership.domain_id, func.count(Membership.doc_id))
+        .group_by(Membership.domain_id).all()
+    )
+    for d in db.query(Domain).order_by(Domain.id).all():
+        domains.append({
+            "id": d.id, "name": d.name, "description": d.description,
+            "keywords_str": "、".join(json.loads(d.keywords)) if d.keywords else "",
+            "enabled": bool(d.enabled),
+            "doc_count": counts.get(d.id, 0),
+        })
+    return templates.TemplateResponse(request, "domains.html", {"domains": domains})
+
+
+@router.post("/admin/domains/add")
+async def add_domain_page(request: Request, db: Session = Depends(get_session)):
+    form = await request.form()
+    name = (form.get("name") or "").strip()
+    if not name:
+        return RedirectResponse("/admin/domains", status_code=303)
+    if db.query(Domain).filter(Domain.name == name).first():
+        return RedirectResponse("/admin/domains?error=dup", status_code=303)
+    now = int(time.time())
+    keywords = [k.strip() for k in (form.get("keywords") or "").replace("，", ",").split(",") if k.strip()]
+    db.add(Domain(name=name, description=(form.get("description") or "").strip(),
+                  keywords=json_dump(keywords), enabled=1,
+                  created_at=now, updated_at=now))
+    db.commit()
+    return RedirectResponse("/admin/domains", status_code=303)
+
+
+@router.post("/admin/domains/{domain_id}/update")
+async def update_domain_page(domain_id: int, request: Request,
+                             db: Session = Depends(get_session)):
+    form = await request.form()
+    d = db.get(Domain, domain_id)
+    if d:
+        if form.get("description") is not None:
+            d.description = (form.get("description") or "").strip()
+        if form.get("keywords") is not None:
+            keywords = [k.strip() for k in
+                        (form.get("keywords") or "").replace("，", ",").split(",")
+                        if k.strip()]
+            d.keywords = json_dump(keywords)
+        if form.get("toggle_enabled"):
+            d.enabled = 0 if d.enabled else 1
+        d.updated_at = int(time.time())
+        db.commit()
+    return RedirectResponse("/admin/domains", status_code=303)
+
+
+# ============ 管理后台:渠道 ============
+
+
+@router.get("/admin/pipes", response_class=HTMLResponse)
+def pipes_page(request: Request, db: Session = Depends(get_session)):
+    dmap = _domain_map(db)
+    pipes = []
+    for p in db.query(Pipe).order_by(Pipe.id).all():
+        pipes.append({
+            "id": p.id, "type": p.type, "name": p.name,
+            "domain_name": dmap.get(p.domain_id) if p.domain_id else None,
+            "is_derived": p.domain_id is not None,
+            "enabled": bool(p.enabled),
+            "fetch_interval_min": p.fetch_interval_min,
+            "last_fetched_fmt": _fmt_time(p.last_fetched_at),
+            "last_error": p.last_error,
+            "type_supported": p.type in ("rss", "arxiv", "wechat", "manual"),
+        })
+    return templates.TemplateResponse(request, "pipes.html", {
+        "pipes": pipes,
+        "domains": db.query(Domain).filter(Domain.enabled == 1).all(),
+    })
+
+
+@router.post("/admin/pipes/add")
+async def add_pipe_page(request: Request, db: Session = Depends(get_session)):
+    from app.services.source_service import create_pipe
+
+    form = await request.form()
+    pipe_type = form.get("type") or "rss"
+    name = (form.get("name") or "").strip()
+    value = (form.get("config_value") or "").strip()
+    interval = int(form.get("interval") or 30)
+    domain_id = form.get("domain_id") or None
+    domain_id = int(domain_id) if domain_id else None
+
+    if pipe_type == "rss":
+        config = {"feed_url": value}
+    elif pipe_type == "arxiv":
+        config = {"category": value or "cs.AI", "max_results": 30}
+    else:
+        config = {"mp_id": value, "wewe_base_url": "http://localhost:9001"}
+
+    existing_feed = None
+    if pipe_type == "rss":
+        shared = db.query(Pipe).filter(
+            Pipe.type == "rss", Pipe.domain_id.is_(None)).all()
+        for s in shared:
+            cfg = json.loads(s.config) if s.config else {}
+            if cfg.get("feed_url") == value:
+                existing_feed = s
+                break
+    if existing_feed:
+        return RedirectResponse(
+            f"/admin/pipes?error=shared_exists&existing={existing_feed.id}", status_code=303)
+
+    if name:
+        create_pipe(db, pipe_type, name, config, interval, domain_id)
+    return RedirectResponse("/admin/pipes", status_code=303)
+
+
+@router.post("/admin/pipes/{pipe_id}/toggle")
+def toggle_pipe_page(pipe_id: int, db: Session = Depends(get_session)):
+    pipe = db.get(Pipe, pipe_id)
+    if pipe:
+        pipe.enabled = 0 if pipe.enabled else 1
+        pipe.updated_at = int(time.time())
+        db.commit()
+    return RedirectResponse("/admin/pipes", status_code=303)
+
+
+@router.get("/admin/pipes/{pipe_id}/fetch")
+def fetch_pipe_page(pipe_id: int, db: Session = Depends(get_session)):
+    pipe = db.get(Pipe, pipe_id)
+    if pipe and pipe.type != "manual":
+        fetch_source(db, pipe, trigger="manual")
+    return RedirectResponse("/admin/pipes", status_code=303)
+
+
+@router.post("/admin/pipes/save-url")
+async def save_url_page(request: Request, db: Session = Depends(get_session)):
+    from app.services import manual_service
+    from app.services.fulltext import ArchiveError
+
+    form = await request.form()
+    url = (form.get("url") or "").strip()
+    try:
+        manual_service.save_url(db, url)
+    except ArchiveError as e:
+        from urllib.parse import quote
+        return RedirectResponse(f"/admin/pipes?error=save_url&msg={quote(str(e))}",
+                                status_code=303)
+    return RedirectResponse("/admin/pipes?saved=1", status_code=303)
+
+
+# ============ 管理后台 ============
+
+
+@router.get("/admin", response_class=HTMLResponse)
+def ops_page(request: Request, db: Session = Depends(get_session)):
+    from app.services.fulltext_backfill import FULLTEXT_MIN_WORDS
+    from app.ai.analyzer import select_doc_ids
+
     now = int(time.time())
     day_ago = now - 86400
 
-    sources = db.query(Source).order_by(Source.name).all()
+    runs = db.query(RunLog).order_by(RunLog.id.desc()).limit(50).all()
+    run_rows = [{
+        "id": r.id, "kind": r.kind, "pipe_name": r.pipe_name or "-",
+        "trigger": r.trigger, "status": r.status,
+        "counts": _run_counts(r), "error": r.error,
+        "duration": _fmt_duration(r.duration_ms),
+        "created_fmt": _fmt_time(r.created_at),
+    } for r in runs]
 
-    # 每个源的总文章数 / 近24h 新增
-    total_by_src = dict(
-        db.query(Item.source_id, func.count(Item.id)).group_by(Item.source_id).all()
-    )
-    recent_by_src = dict(
-        db.query(Item.source_id, func.count(Item.id))
-        .filter(Item.fetched_at >= day_ago)
-        .group_by(Item.source_id)
-        .all()
-    )
+    runs_24h = db.query(RunLog).filter(RunLog.created_at >= day_ago).all()
+    fetch_runs = [r for r in runs_24h if r.kind == "fetch"]
 
-    source_rows = []
-    error_count = 0
-    overdue_count = 0
-    for s in sources:
-        last = s.last_fetched_at or 0
-        age = now - last if last else None
-        interval_s = (s.fetch_interval_min or 30) * 60
-        # 逾期判定：距上次抓取超过 间隔×2 视为可能卡住（只对启用源判定）
-        overdue = bool(s.enabled) and last > 0 and age is not None and age > interval_s * 2
-        has_error = bool(s.last_error)
-        if has_error:
-            error_count += 1
-        if overdue:
-            overdue_count += 1
-        if has_error:
-            health = "error"
-        elif overdue or last == 0:
-            health = "warn"
-        else:
-            health = "ok"
-        source_rows.append({
-            "id": s.id,
-            "name": s.name,
-            "type": s.type,
-            "enabled": bool(s.enabled),
-            "interval_min": s.fetch_interval_min,
-            "total": total_by_src.get(s.id, 0),
-            "recent24h": recent_by_src.get(s.id, 0),
-            "last_fetched_fmt": _fmt_time(s.last_fetched_at),
-            "age_str": _fmt_age(age),
-            "last_error": s.last_error,
-            "health": health,
-        })
-    # 报错和逾期的排前面
-    source_rows.sort(key=lambda r: {"error": 0, "warn": 1, "ok": 2}[r["health"]])
+    by_kind = dict(db.query(Doc.kind, func.count(Doc.id)).group_by(Doc.kind).all())
+    articles = db.query(Article).count()
+    sufficient = db.query(Article).filter(
+        Article.word_count >= FULLTEXT_MIN_WORDS).count()
 
-    # AI 评分概览
-    scored = db.query(Item).filter(Item.ai_score.isnot(None), Item.ai_score > 0).count()
-    failed_score = db.query(Item).filter(Item.ai_score == -1).count()
-    pending_score = (
-        db.query(Item)
-        .filter(Item.ai_score.is_(None), Item.content_text.isnot(None), Item.content_text != "")
-        .count()
-    )
+    from app.writer import check_orphans
 
-    # 最近抓取日志
-    logs = db.query(SyncLog).order_by(SyncLog.id.desc()).limit(40).all()
-    log_rows = [{
-        "source_name": lg.source_name,
-        "source_type": lg.source_type,
-        "trigger": lg.trigger,
-        "ok": bool(lg.ok),
-        "inserted": lg.inserted,
-        "error": lg.error,
-        "duration_ms": lg.duration_ms,
-        "created_fmt": _fmt_time(lg.created_at),
-    } for lg in logs]
+    pending_analyze = len(select_doc_ids(db))
 
-    # 近24h 抓取活跃度：成功/失败次数、入库总数
-    syncs_24h = db.query(SyncLog).filter(SyncLog.created_at >= day_ago).all()
-    sync_ok = sum(1 for s in syncs_24h if s.ok)
-    sync_fail = sum(1 for s in syncs_24h if not s.ok)
-    inserted_24h = sum(s.inserted for s in syncs_24h)
+    running = db.query(RunLog).filter(RunLog.status == "running") \
+        .order_by(RunLog.id.desc()).all()
 
     summary = {
-        "source_total": len(sources),
-        "source_enabled": sum(1 for s in sources if s.enabled),
-        "source_error": error_count,
-        "source_overdue": overdue_count,
-        "item_total": sum(total_by_src.values()),
-        "item_recent24h": sum(recent_by_src.values()),
-        "scored": scored,
-        "pending_score": pending_score,
-        "failed_score": failed_score,
-        "sync_ok_24h": sync_ok,
-        "sync_fail_24h": sync_fail,
-        "inserted_24h": inserted_24h,
+        "docs_total": sum(by_kind.values()),
+        "papers": by_kind.get("paper", 0),
+        "repos": by_kind.get("repo", 0),
+        "articles": by_kind.get("article", 0),
+        "fulltext": f"{sufficient}/{articles}",
+        "pending_analyze": pending_analyze,
+        "fetch_ok_24h": sum(1 for r in fetch_runs if r.status == "done"),
+        "fetch_fail_24h": sum(1 for r in fetch_runs if r.status != "done"),
+        "orphan_docs": check_orphans(db),
+        "running": running,
     }
 
-    return templates.TemplateResponse(request, "dashboard.html", {
+    return templates.TemplateResponse(request, "ops.html", {
         "summary": summary,
-        "source_rows": source_rows,
-        "log_rows": log_rows,
+        "run_rows": run_rows,
     })
 
 
-@router.get("/sources", response_class=HTMLResponse)
-def sources_page(request: Request, db: Session = Depends(get_session)):
-    sources = db.query(Source).order_by(Source.created_at.desc()).all()
-    source_list = []
-    for s in sources:
-        source_list.append({
-            "id": s.id,
-            "name": s.name,
-            "type": s.type,
-            "fetch_interval_min": s.fetch_interval_min,
-            "last_fetched_fmt": _fmt_time(s.last_fetched_at),
-            "last_error": s.last_error,
-        })
-    return templates.TemplateResponse(request, "sources.html", {
-        "sources": source_list,
-    })
+def _run_counts(r: RunLog) -> str:
+    if r.kind == "fetch":
+        return f"+{r.inserted}"
+    if r.kind == "fulltext":
+        return f"{r.processed}/{r.total}"
+    return f"{r.processed}/{r.total} (成{r.succeeded}/败{r.failed})"
 
 
-@router.post("/sources/add")
-async def add_source(request: Request, db: Session = Depends(get_session)):
-    form = await request.form()
-
-    source_type = form.get("type", "rss")
-    name = form.get("name", "")
-    config_value = form.get("config_value", "")
-    interval = int(form.get("interval", "30"))
-
-    if source_type == "rss":
-        config = {"feed_url": config_value}
-    else:
-        config = {"mp_id": config_value, "wewe_base_url": "http://localhost:9001"}
-
-    now = int(time.time())
-    src = Source(
-        type=source_type,
-        name=name,
-        config=json.dumps(config, ensure_ascii=False),
-        fetch_interval_min=interval,
-        created_at=now,
-        updated_at=now,
-    )
-    db.add(src)
-    db.commit()
-    return RedirectResponse("/sources", status_code=303)
-
-
-@router.get("/sources/{source_id}/fetch")
-def trigger_fetch_page(source_id: int, db: Session = Depends(get_session)):
-    src = db.query(Source).filter(Source.id == source_id).first()
-    if src:
-        fetch_source(db, src, trigger="manual")
-    return RedirectResponse("/sources", status_code=303)
-
-
-@router.get("/jobs", response_class=HTMLResponse)
-def jobs_page(request: Request, db: Session = Depends(get_session)):
-    from app.models import Item, Job
-    pending = (
-        db.query(Item)
-        .filter(Item.ai_score.is_(None))
-        .filter(Item.content_text.isnot(None))
-        .filter(Item.content_text != "")
-        .count()
-    )
-    jobs = db.query(Job).order_by(Job.id.desc()).limit(20).all()
-    job_list = []
-    for j in jobs:
-        duration = None
-        if j.finished_at and j.created_at:
-            duration = j.finished_at - j.created_at
-        job_list.append({
-            "id": j.id,
-            "status": j.status,
-            "trigger": j.trigger,
-            "total": j.total,
-            "processed": j.processed,
-            "succeeded": j.succeeded,
-            "failed": j.failed,
-            "error": j.error,
-            "created_fmt": _fmt_time(j.created_at),
-            "duration": duration,
-            "pct": int(j.processed * 100 / j.total) if j.total else 0,
-        })
-    return templates.TemplateResponse(request, "jobs.html", {
-        "jobs": job_list,
-        "pending": pending,
-    })
-
-
-@router.get("/settings", response_class=HTMLResponse)
-def settings_page(request: Request, db: Session = Depends(get_session)):
-    from app.ai.scorer import get_categories
-    return templates.TemplateResponse(request, "settings.html", {
-        "categories": get_categories(db),
-    })
-
-
-@router.post("/settings/categories/add")
-async def add_category_page(request: Request, db: Session = Depends(get_session)):
-    from app.ai.scorer import get_categories, save_categories
-    form = await request.form()
-    name = (form.get("name") or "").strip()
-    desc = (form.get("desc") or "").strip()
-    if name:
-        cats = get_categories(db)
-        if not any(c["name"] == name for c in cats):
-            cats.append({"name": name, "desc": desc})
-            save_categories(db, cats)
-    return RedirectResponse("/settings", status_code=303)
-
-
-@router.post("/settings/categories/delete")
-async def delete_category_page(request: Request, db: Session = Depends(get_session)):
-    from app.ai.scorer import get_categories, save_categories
-    form = await request.form()
-    name = (form.get("name") or "").strip()
-    cats = [c for c in get_categories(db) if c["name"] != name]
-    save_categories(db, cats)
-    return RedirectResponse("/settings", status_code=303)
-
-
-@router.post("/settings/reset-failed")
-def reset_failed_page(db: Session = Depends(get_session)):
-    from app.ai.scorer import reset_failed_scores
-    reset_failed_scores(db)
-    return RedirectResponse("/settings", status_code=303)
-
-
-@router.post("/settings/rescore-all")
-def rescore_all_page(db: Session = Depends(get_session)):
-    from app.ai.scorer import rescore_all
-    rescore_all(db)
-    return RedirectResponse("/settings", status_code=303)
+def _fmt_duration(ms: int | None) -> str:
+    if not ms:
+        return "-"
+    if ms < 1000:
+        return f"{ms}ms"
+    return f"{ms // 1000}s"

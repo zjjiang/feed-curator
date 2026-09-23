@@ -1,0 +1,61 @@
+{% extends "layout.html" %}
+{% block title %}渠道 · 管理后台 · feed-curator{% endblock %}
+{% block body %}
+<h2>手工存入</h2>
+{% if request.query_params.get('saved') %}<div class="error-flash" style="background:#e8f5e9;border-color:#c8e6c9;color:#2e7d32">已存入。</div>{% endif %}
+{% if request.query_params.get('error') == 'save_url' %}
+<div class="error-flash">{{ request.query_params.get('msg', '存入失败') }}</div>
+{% endif %}
+<div class="card">
+  <form method="post" action="/admin/pipes/save-url" class="filters">
+    <input type="url" name="url" placeholder="https:// 文章/仓库/论文链接" style="flex:1">
+    <button class="primary">存入</button>
+  </form>
+  <div class="muted">文章会自动抓正文;仓库与论文仅按 URL 建档,字段由补全流程填充。</div>
+</div>
+
+<h2>采集渠道</h2>
+{% if request.query_params.get('error') == 'shared_exists' %}
+<div class="error-flash">已有相同 feed 的共享渠道(#{},渠道名 {})。派生渠道不需要重复建源——领域归属由 AI 判定决定,只需维护领域关键词。</div>
+{% endif %}
+<table>
+<tr><th>名称</th><th>类型</th><th>归属</th><th>间隔</th><th>最近采集</th><th></th></tr>
+{% for p in pipes %}
+<tr>
+  <td>
+    <strong>{{ p.name }}</strong>
+    {% if not p.enabled %}<span class="tag" style="background:#eee">停用</span>{% endif %}
+    {% if p.last_error %}<div class="muted" style="color:var(--err)">{{ p.last_error[:80] }}</div>{% endif %}
+  </td>
+  <td><span class="tag">{{ p.type }}{% if not p.type_supported %}(暂不支持){% endif %}</span></td>
+  <td>{% if p.domain_name %}<span class="tag domain">派生 · {{ p.domain_name }}</span>{% else %}<span class="tag">共享</span>{% endif %}</td>
+  <td class="muted">{{ p.fetch_interval_min }}min</td>
+  <td class="muted">{{ p.last_fetched_fmt }}</td>
+  <td>
+    <form class="inline" method="post" action="/admin/pipes/{{ p.id }}/toggle"><button>{{ '停用' if p.enabled else '启用' }}</button></form>
+    <a class="btn" href="/admin/pipes/{{ p.id }}/fetch">采集</a>
+  </td>
+</tr>
+{% endfor %}
+</table>
+<div class="muted" style="margin-top:8px">派生渠道 = 采集范围跟随所属领域(查询条件由领域关键词实时生成);共享渠道 = 全量源,归属由 AI 判定。github 类型采集由另立项目负责,在此之前渠道保持停用。</div>
+
+<h2>新建渠道</h2>
+<div class="card">
+  <form method="post" action="/admin/pipes/add" class="filters">
+    <select name="type" style="width:auto">
+      <option value="rss">RSS</option>
+      <option value="arxiv">arXiv</option>
+      <option value="wechat">微信公众号</option>
+    </select>
+    <input type="text" name="name" placeholder="名称" style="flex:1">
+    <input type="text" name="config_value" placeholder="feed 地址 / arXiv 分类 / 公众号 mp_id" style="flex:2">
+    <input type="number" name="interval" value="30" min="1" style="width:70px" title="采集间隔(分钟)">
+    <select name="domain_id" style="width:auto">
+      <option value="">共享渠道</option>
+      {% for d in domains %}<option value="{{ d.id }}">派生 · {{ d.name }}</option>{% endfor %}
+    </select>
+    <button class="primary">添加</button>
+  </form>
+</div>
+{% endblock %}

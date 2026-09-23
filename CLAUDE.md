@@ -4,188 +4,171 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-AI-driven personal reading pipeline. Pulls articles from multiple sources (RSS, WeChat public accounts, arXiv), stores them in **MySQL**, and has an LLM **read each article** to produce a summary, key points, category tags, and a 1–5 star quality rating. Serves a server-rendered web UI. FastAPI + APScheduler, single process, no separate worker. Runs locally at `:9003` (port 9000 is taken by system php-fpm, so this app uses 9003 — not the 8002 some older docs mention).
+AI-driven personal reading pipeline. Pulls content from RSS/WeChat/arXiv pipes into **MySQL**, classifies every document into one of three entity types by URL (`article` / `paper` / `repo`), runs an LLM over each document to produce summary + keypoints + domain membership + tech/business tag + 1-5 star rating, and serves a server-rendered web UI. FastAPI + APScheduler, single process, no separate worker. Runs natively at `:9003` (port 9000 is taken by system php-fpm).
 
-The earlier design scored articles 1–10 against a free-text *preference* and behavior-mined few-shot examples. That was removed. The pipeline is now: read → summarize → extract key points → tag from a user-defined category list → rate 1–5 stars. There is no preference/few-shot learning anymore.
+The 2026-09 rebuild (`openspec/changes/rebuild-domain-model/`) replaced the old flat `Source`/`Item` tables with a class-table-inheritance model (`doc` identity layer + `paper`/`repo`/`article` entity tables), replaced free-text categories with `domain` (AI picks domains per doc), and renamed sources to `pipe` (shared vs domain-derived). The old SQLite database was migrated and deleted; the only rollback is `data/feed-curator.db.bak-20260923`.
 
 ## Commands
 
 ```bash
-docker compose up -d --build                                     # preferred: containerized, auto-restarts on reboot
-docker compose logs -f                                           # tail container logs
-curl http://localhost:9003/health                                # health check → {"status":"ok"}
+uv sync                                    # install deps (Python 3.14+)
+uv run pytest                              # test suite (150 tests, in-memory SQLite)
+uv run pytest --cov=app                    # coverage (threshold: 80%)
 ```
 
-feed-curator runs as a Docker container (`docker-compose.yml`), connecting to the
-`db-mp` MySQL container over the `feed-net` network. Config comes from `.env`
-(gitignored; copy from `.env.example`). See `docs/deployment.md` for the full
-architecture and the one-time setup (db migration, `feed-net`, registry mirrors).
-
-Running natively with uv still works for dev, but you must export `DATABASE_URL`
-first (or have it in `.env`) or the app silently falls back to local SQLite:
+Native run (the current deployment mode):
 
 ```bash
-uv sync                                                          # install deps (Python 3.14+)
-export DATABASE_URL="mysql+pymysql://USER:PASSWORD@127.0.0.1:3306/feed_curator?charset=utf8mb4"
-export DEEPSEEK_API_KEY="sk-..."   # optional; without it, fetch works but AI processing is disabled
-uv run --no-sync uvicorn app.main:app --port 9003 --host 0.0.0.0
+# .env (gitignored) provides DATABASE_URL and DEEPSEEK_API_KEY
+set -a && source .env && set +a
+uv run --no-sync uvicorn app.main:app --port 9003 --host 127.0.0.1
+curl http://localhost:9003/health          # → {"status":"ok"}
 ```
 
-The container has `restart: unless-stopped` + a `/health` healthcheck, so it
-auto-starts on reboot. Native runs are `nohup` and do NOT auto-start.
+`DATABASE_URL` targets the **local Homebrew MySQL** (not the old `db-mp` container):
+`mysql+pymysql://root:...@127.0.0.1:3306/feed_curator?charset=utf8mb4`. If unset,
+`app/db.py` falls back to SQLite at `data/feed-curator.db` (that file was deleted
+after migration, so the fallback yields an empty DB — do not rely on it).
 
-There is no test suite, linter, or build step configured. The project ships as-is.
+`DEEPSEEK_API_KEY` enables AI analysis; without it the app runs except analysis
+(scheduler cycle no-ops, `/api/analyze/run` reports "未配置").
+
+There is no linter or build step configured. Historical docker-compose/db-mp
+topology docs in `docs/deployment.md` predate the rebuild; the containers
+(`feed-curator`, `we-mp-rss`, `rsshub`, `db-mp`) were all stopped/absent at
+rebuild time.
 
 ## Database
 
-**MySQL** via SQLAlchemy + `pymysql`. The app connects to the **`db-mp` Docker MySQL
-container** (database `feed_curator`, account `feed_curator`). This is the *same*
-MySQL instance that backs we-mp-rss (`we_mp_rss` db) — both DBs now live in one
-container after the consolidation (see `docs/deployment.md`).
+MySQL via SQLAlchemy + pymysql, 13 tables defined in `app/models/`:
 
-**Connection differs by where the app runs:**
-- **In container (default):** `DATABASE_URL` targets the service name `db-mp:3306`
-  over the `feed-net` network — no host port, no IPv4/IPv6 ambiguity.
-  `mysql+pymysql://feed_curator:PASSWORD@db-mp:3306/feed_curator?charset=utf8mb4`
-- **Native dev (legacy Homebrew MySQL, now stopped):** if you start the old
-  Homebrew `mysqld`, use `127.0.0.1` not `localhost` — historically two MySQLs
-  shared 3306 (Homebrew on IPv4, db-mp on `*` incl. IPv6) and `localhost` could
-  hit the wrong one. After consolidation only db-mp listens on 3306.
+- **Identity + entities**: `doc` (id, kind, url_key UNIQUE, url, title, sort_time,
+  first_seen_at, last_modified_at) + `paper` / `repo` / `article` whose `id` is
+  both PK and FK to `doc.id`. Entity type is decided by URL
+  (`app/utils/doc_kind.py`): arxiv.org abs/pdf/html → paper; github.com with
+  exactly 2 path segments → repo; everything else → article.
+- **Pipeline**: `domain` (keywords as JSON array — feeds the LLM and generates
+  derived-pipe queries), `pipe` (`domain_id` NULL = shared, set = derived),
+  `discovery` (UNIQUE(pipe_id, external_id), per-pipe ingestion record).
+- **Analysis**: `analysis` (append-only; effective judgment = latest
+  `status='ok'` row per doc), `membership` (PK (doc_id, domain_id),
+  `assigned_by` ai|manual).
+- **Ops**: `reading` (1:1 with doc, lazy-created), `document_link` + `suggestion`
+  (reserved for future agents), `run_log` (kind `fetch|analyze|fulltext|agent` —
+  the old Job+SyncLog merge).
 
-`app/db.py` reads `DATABASE_URL` from the environment. If set → MySQL. If unset →
-falls back to local SQLite at `data/feed-curator.db`. (History: SQLite → db-mp's
-MySQL → local Homebrew MySQL → **back to db-mp** (consolidated, container-native).
-The Homebrew MySQL is stopped but its data is retained for rollback.)
+Dedup key is the **normalized URL** (`app/utils/url_key.py`: lowercase host,
+strip trailing slash, strip fragment, strip only `utm_*` params). All writers
+must go through `app/writer.py:upsert_doc()` — one transaction writes doc +
+entity row + discovery; nothing else may insert into these tables directly.
 
-**SQLite → MySQL gotchas already handled in `models.py`** (don't reintroduce them):
-- `Item.content_text` / `content_html` / `description` use `LongText` (= `LONGTEXT` on MySQL, `TEXT` on SQLite). Plain `Text` maps to MySQL `TEXT` (64 KB cap) and truncates long articles — one Anthropic post is ~80 KB of HTML.
-- `Item.external_id` is `String(255)` (was 512) so it fits MySQL's utf8mb4 index byte limit inside the `(source_id, external_id)` unique constraint.
-- `Item.author` is `Text`, not `String(255)` — arXiv author lists overflow 255 chars.
-- Tables are `utf8mb4_unicode_ci`. (When inspecting via `docker exec ... mysql`, pass `--default-character-set=utf8mb4` or Chinese shows as `???` — that's a client display issue, not corruption.)
+**MySQL gotchas (don't reintroduce):**
+- Long text columns use the `LongText` variant (`Text().with_variant(LONGTEXT,
+  "mysql")`) — plain `Text` truncates at 64 KB on MySQL.
+- `doc.url_key` is `String(500)` (2000 bytes in utf8mb4, under the 3072-byte
+  InnoDB index limit).
+- JSON columns are serialized via `app/utils/json_str.json_dump()`
+  (`ensure_ascii=False` — content is Chinese).
+- Schema must compile on both MySQL and SQLite (`tests/models/test_schema.py`
+  asserts both dialects).
 
 ## Directory layout
 
 ```
 app/
-├── main.py            # FastAPI app, JSON API, lifespan; two APScheduler jobs (fetch + auto-process); mounts MCP at /mcp
-├── db.py              # engine/session; DATABASE_URL → MySQL else SQLite; init_db + light migration / zombie-job cleanup
-├── models.py          # Source, Item, Setting, Job tables; LongText variant helper
-├── mcp_server.py      # MCP server mounted at /mcp — tools to add/search/subscribe sources (used by local MCP clients)
-├── adapters/          # source-type plugins (extension point)
-│   ├── base.py        # SourceAdapter ABC + FetchedItem dataclass
-│   ├── rss.py         # feedparser-based; also reaches RSSHub-bridged sources
-│   ├── wechat.py      # HTTP JSON feed from we-mp-rss
-│   └── arxiv.py       # arXiv Atom API XML
+├── main.py            # FastAPI app, JSON API, lifespan; fetch + analyze scheduler cycles; mounts MCP at /mcp
+├── db.py              # engine/session; init_db = create_all + zombie-run cleanup + orphan report
+├── writer.py          # THE single write entry: upsert_doc() + refresh_repo() + check_orphans()
+├── mcp_server.py      # MCP tools at /mcp: add_rss, list_pipes, save_url, domains, recommend, job_status
+├── adapters/          # rss / arxiv / wechat — return FetchedItem, never touch the DB
 ├── ai/
-│   ├── client.py      # DeepSeek-compatible chat client; process_article() → {summary, keypoints, categories, stars}
-│   └── scorer.py      # get/save_categories, reset_failed_scores, rescore_all (run_scoring_batch is legacy, unused by scheduler)
+│   ├── client.py      # LLMClient.analyze() → {summary, keypoints, domains, article_kind, stars}; output defense lives here
+│   └── analyzer.py    # orchestration: select_doc_ids, analyze_doc, materialize membership + kind_tag
 ├── jobs/
-│   ├── fetcher.py     # fetch_source + _upsert_item (dedup)
-│   └── runner.py      # async processing job: thread-pool worker, single-job lock, progress tracking
-├── services/          # support layer for mcp_server
-│   ├── source_service.py  # create_source / create_rss_source / create_wechat_source
-│   └── wewe_client.py     # we-mp-rss HTTP client (search/subscribe WeChat accounts)
-├── utils/
-│   └── html_clean.py  # HTML → text, word-count estimate
+│   ├── fetcher.py     # fetch_source (pipe → upsert_doc, run_log), resolve_fetch_config (derived pipes)
+│   └── runner.py      # analyze job executor: thread pool (5 workers), single-job lock, cancel event
+├── services/
+│   ├── fulltext.py            # fetch+parse article pages; SSRF protection (rebuilt from lost archive_service)
+│   ├── fulltext_backfill.py   # rate-limited batch backfill of short articles (run_log kind='fulltext')
+│   ├── manual_service.py      # "save URL" entry (manual pipe type)
+│   ├── doc_fields.py          # FetchedItem → (kind, detail) field routing, shared by all writers
+│   ├── source_service.py      # create_pipe helpers
+│   └── wewe_client.py         # we-mp-rss HTTP client (login/search/subscribe)
+├── utils/             # url_key, doc_kind, json_str, html_clean
 └── web/
-    ├── pages.py       # server-rendered Jinja2 routes (separate from JSON API)
-    └── templates/     # items.html, sources.html, settings.html, jobs.html, layout.html
+    ├── pages.py       # server-rendered routes: reader (/ feed, /docs/{id}) + admin (/admin, /admin/pipes, /admin/domains; legacy paths redirect)
+    └── templates/     # layout, index, doc, domains, pipes, ops
+scripts/migration/     # one-shot migration + verify + fulltext backfill runner (SQLite source is deleted; kept as record)
+tests/                 # pytest suite; conftest provides per-test in-memory SQLite (StaticPool)
 ```
 
 ## Architecture
 
-The pipeline is **source → adapter → fetcher → DB → AI processing → web**, driven by background jobs in `app/main.py`:
+Pipeline: **pipe → adapter → fetcher → upsert_doc → (fulltext backfill) → AI analysis → web**.
 
-- `_run_fetch_cycle` runs every 60s. Checks each enabled `Source` against its `fetch_interval_min` and calls `fetch_source` when due.
-- `_run_scoring_cycle` runs every 300s. If a key is configured and there are unprocessed items **and no job is already running**, it creates an `auto`-triggered processing Job. No-ops without `DEEPSEEK_API_KEY`.
+- **Fetch cycle** (every 60s): enabled pipes whose type has an adapter and whose
+  interval elapsed get `fetch_source`. Each item is kind-detected by URL,
+  fields routed by `doc_fields.build_detail`, and written through
+  `upsert_doc`. Failures are isolated per pipe (and per item) and land in
+  `pipe.last_error` + `run_log`. `github` pipes stay disabled — repo collection
+  is a separate future project (contract: `upsert_doc(kind, ...)`).
+- **Analyze cycle** (every 300s): if an API key is configured, docs are pending,
+  and no analyze run is active → start one. `runner.py` keeps the production
+  concurrency model: in-memory lock + DB status double-guard, thread pool with
+  one session per worker, cancel Event, zombie-run cleanup on startup.
+- **Fulltext backfill**: not part of fetch. Triggered from `/ops` (50-doc
+  batches, 1s/request) or `scripts/migration/run_fulltext_backfill.py`. Only
+  articles with `word_count < 500` and older than a 3-day cooldown are fetched.
+  Failures keep the short content and never block anything.
+- **Derived pipes**: a derived pipe's query is generated at fetch time from its
+  domain's keywords (`resolve_fetch_config`) — edit domain keywords and the next
+  fetch uses the new query. Shared pipes have no domain.
 
-### Async processing jobs (`app/jobs/runner.py`)
+### AI analysis contract
 
-Article processing is modeled as a **Job**. Both the manual "全量处理" button and the auto scheduler go through the same `start_process_job(trigger)`:
-
-- **Single global job**: an in-memory lock + a DB `status='running'` check ensure only one job runs at a time. A second trigger reuses the running job rather than creating a duplicate (returns `created=False`).
-- **Thread-pool concurrency**: a daemon thread drives a `ThreadPoolExecutor` (`MAX_WORKERS = 5`) calling the LLM in parallel. Each worker uses its own `SessionLocal` (SQLite/MySQL cross-thread safety).
-- **Progress**: each finished article updates the Job's `processed/succeeded/failed` counts, so the frontend can poll `/api/jobs/{id}` and animate a progress bar.
-- **Cancel**: `cancel_job(id)` sets a `threading.Event`; in-flight items finish, remaining ones are skipped, status → `cancelled`.
-- **Crash recovery**: on startup `init_db()` marks any leftover `running` job as `failed` (the thread died with the process), so the lock can't get stuck.
-
-The fetch/process jobs are the only writers in normal operation; API/web endpoints provide manual triggers and user actions (favorite, read).
-
-### Adapters (the extension point)
-
-`app/adapters/` is where new source types plug in. Every adapter subclasses `SourceAdapter` (`base.py`), implements `fetch(config: dict) -> list[FetchedItem]`, and is registered by `type` string in `ADAPTERS` (`__init__.py`). `FetchedItem` is the normalized shape every adapter must produce — the fetcher and DB layer know nothing about RSS/WeChat/arXiv specifics. To add a source type: write the adapter, register it, done. Existing types: `rss` (feedparser, also used to reach RSSHub-bridged sources like 虎嗅 via `http://localhost:9002`), `wechat` (HTTP JSON feed from we-mp-rss at `http://localhost:9001`), `arxiv` (Atom API XML).
-
-### Data model
-
-`app/models.py` — four tables:
-- `Source` — config stored as a JSON string in a Text column.
-- `Item` — articles. AI output split across `ai_summary` (text), `ai_keypoints` (JSON array string), `ai_tags` (JSON array of selected category names), `ai_score` (star rating).
-- `Setting` — key/value. Currently holds `categories`: a JSON array of `{"name", "desc"}` the user manages in the UI. The LLM picks tags only from this list; `desc` is fed to the LLM to improve tagging. (Empty list = no tagging, summary/keypoints/stars still produced.)
-- `Job` — one processing run: `status` (running/done/failed/cancelled), `trigger` (manual/auto), `total/processed/succeeded/failed`, timestamps, `error`.
-
-All timestamps are **Unix epoch integers**, not datetimes. Dedup is enforced by the `(source_id, external_id)` unique constraint; `_upsert_item` in `fetcher.py` treats `IntegrityError` as "already exists, skip."
-
-`ai_score` semantics: `None` = not yet processed (eligible for next job), `-1` = processing failed (excluded from score-sorted views; resettable via `/api/score/reset-failed`), `1-5` = star rating. Items with empty `content_text` are never picked up.
-
-### AI processing
-
-`app/ai/client.py` talks to a DeepSeek-compatible chat API (OpenAI-style `/chat/completions`, expects strict JSON back). `process_article()` does one call returning `{summary, keypoints[], categories[], stars}`. It defends against bad LLM output: strips markdown fences, drops categories the user didn't define, and fails the item if `stars` is missing or out of 1–5 range. `app/ai/scorer.py` provides the category get/save helpers and the `reset_failed_scores` / `rescore_all` maintenance ops. Use `rescore_all` to clear all AI output and let the scheduler reprocess from scratch after changing the category list.
+`LLMClient.analyze()` sends title/description/content-preview + the domain list
+and must return strict JSON `{summary, keypoints[], domains[], article_kind,
+stars}`. Defense rules (all in client.py, all tested): strip markdown fences;
+stars out of 1-5 or missing → failure; unknown domain names dropped; invalid
+article_kind → cleared (not a failure); articles with insufficient content get
+`article_kind` forced empty — never guessed from the title. Results append to
+`analysis`; a successful judgment materializes into `membership` (ai rows only
+— manual rows are never auto-removed) and `article.kind_tag`.
 
 ### Web layer
 
-`app/web/pages.py` — server-rendered Jinja2 (templates in `app/web/templates/`), separate from the JSON API in `main.py`. Form posts use POST-redirect-GET. Pages: items (`sort=time` default or `sort=score`, filterable by source and category), sources, settings (category management), jobs (progress bars, polls running jobs every ~2.5s).
-
-### MCP server
-
-`app/mcp_server.py` mounts a streamable-http MCP server at `/mcp` (started inside the FastAPI lifespan). It exposes tools to manage sources — `add_rss`, `search_wechat`, `subscribe_wechat` (chains we-mp-rss → feed-curator), `list_sources` — backed by `app/services/`. Like the JSON API, `/mcp` is unauthenticated and on the same port; fine for local use, add a token / bind to 127.0.0.1 if exposed.
-
-## Deployment topology
-
-This app is one of four components running on this Mac. **feed-curator and RSSHub
-are Docker containers; we-mp-rss is a local process; the database is shared in
-the `db-mp` container.**
-
-| Component | Port | How it runs | Auto-restart? |
-|-----------|------|-------------|---------------|
-| feed-curator | 9003 | Docker `feed-curator` (`restart: unless-stopped`, on `feed-net`) | Yes |
-| we-mp-rss | 9001 | Docker `we-mp-rss` (`restart: unless-stopped`, on `feed-net`) | Yes |
-| RSSHub | 9002 | Docker `rsshub` (`--restart always`) | Yes |
-| MySQL (docker) | 3306 (\*, incl. IPv6) | Docker `db-mp` (`--restart always`) — backs **both** `feed_curator` and `we_mp_rss` dbs; also joined to `feed-net` | Yes |
-
-Only db-mp listens on 3306 now (Homebrew MySQL stopped). The feed-curator
-container reaches db-mp by service name over `feed-net`; it reaches we-mp-rss and
-RSSHub (still on the host) via `host.docker.internal`.
-
-`DEEPSEEK_API_KEY` enables AI processing; absent it, the app runs fully except processing is disabled. `DATABASE_URL` selects the database (see Database section). `.env` (via compose `env_file`) sets both up.
-
-**Source wiring:** in-container, `wechat` sources use `wewe_base_url:
-http://host.docker.internal:9001` and `rss` sources point at
-`http://host.docker.internal:9002/<rsshub-route>` (the container can't reach the
-host's `localhost`). Existing source rows were rewritten during migration.
-
-**Gotchas across the stack (not specific to this repo, but you'll hit them):**
-- ghcr.io / docker.io are unreachable here. Docker daemon `registry-mirrors` is
-  configured (`~/.docker/daemon.json`: 1ms.run, daocloud, etc.) so plain `docker
-  pull` / `compose build` route through domestic mirrors — large base layers are
-  slow but complete. **Mirrors only proxy docker.io, NOT ghcr.io** — for ghcr
-  images pull via `ghcr.nju.edu.cn/<owner>/<img>` (南大代理) then `docker tag`
-  back to `ghcr.io/...`. The Dockerfile also swaps apt to the Tsinghua Debian
-  mirror and installs Python deps via Tsinghua PyPI. GitHub clone over SSH (HTTPS
-  times out). playwright kernels via `npmmirror.com/mirrors/playwright`.
-- we-mp-rss is containerized (`~/Projects/we-mp-rss/docker-compose.curator.yml`,
-  not committed upstream). It connects to db-mp by service name over feed-net
-  (source IP matches `rss_user@'%'`, sidestepping the native-process `localhost`
-  vs `127.0.0.1` reverse-DNS grant gotcha). Image self-bundles redis (data in
-  `./data/redis`); login state persists in `./data` (`.secret_key`, `wx.lic`) so
-  no re-scan. `HEADLESS=true` ⇒ no Xvfb needed; proxy disabled. The legacy native
-  caveats (`env -u USERNAME`, playwright webkit) apply only to the old uv+nohup
-  run, now retired.
+Server-rendered Jinja2, POST-redirect-GET, split into a reader surface and an
+admin surface (separate navs in layout.html). Reader: `/` is the subscribe
+feed (mixed entity stream, filters: domain/kind/tech-business/favorites, sort
+by time or stars), `/docs/{id}` shows content + latest analysis + reading
+controls. Admin: `/admin` overview (run_log dashboard + manual triggers),
+`/admin/pipes` channels, `/admin/domains` domains. Dismissed docs vanish from
+the default list but keep content and judgments.
 
 ## Conventions specific to this codebase
 
-- **Epoch-int timestamps everywhere.** When adding fields or queries, follow `int(time.time())`, not `datetime`.
-- **`Source.config` and `Item.meta` (and `Setting` values like `categories`) are JSON serialized into Text columns** via `json.dumps(..., ensure_ascii=False)`. Preserve `ensure_ascii=False` (content is Chinese).
-- **Long text columns must use the `LongText` variant**, not plain `Text`, or MySQL truncates at 64 KB. See the Database section.
-- **Adapters must not touch the DB** — they return `FetchedItem`s; persistence is the fetcher's job.
-- **Each processing worker uses its own session.** Don't share a `Session` across threads in `runner.py`.
-- Heavy/optional imports (`LLMClient`, scorer/runner functions) are imported lazily inside functions so the app starts without an API key and without paying import cost on every request.
+- **Epoch-int timestamps everywhere** (`int(time.time())`), and model columns
+  have NO ORM defaults — writers fill them (writer.py, analyzer.py, fetcher.py).
+- **`sort_time`** is the cross-entity sort key: published_at for articles,
+  submitted_at for papers, pushed_at for repos. `refresh_repo()` keeps
+  `repo.pushed_at` and `doc.sort_time` in sync.
+- **JSON in Text columns** goes through `json_dump()` (ensure_ascii=False).
+- **Adapters must not touch the DB** — persistence is fetcher/writer territory.
+- **Each runner worker uses its own session**; never share a Session across
+  threads.
+- **Heavy/optional imports stay lazy** (`LLMClient`, runner functions) so the
+  app starts without an API key.
+- **Tests first**: every module above has unit tests (in-memory SQLite via
+  `tests/conftest.py`); network-touching code is tested with
+  `httpx.MockTransport` and offline HTML/fixtures. Keep coverage ≥ 80%.
+
+## Gotchas across the stack (China network)
+
+- ghcr.io / docker.io are unreachable directly; PyPI/GitHub raw access is slow
+  or blocked. GitHub clone works over SSH, not HTTPS. `export.arxiv.org` and
+  some foreign sites intermittently fail SSL handshake — the fulltext backfill
+  is resumable/idempotent, just rerun it when the network cooperates.
+- `we-mp-rss` (WeChat feeds, :9001) and RSSHub (:9002/:1200) were down at
+  rebuild time; the wechat pipe and the 虎嗅 pipe will log fetch errors until
+  those services are back.
+- 机器之心 (jiqizhixin) is WAF-blocked — its pipe stays disabled.
