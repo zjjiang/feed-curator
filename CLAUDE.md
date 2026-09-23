@@ -8,6 +8,16 @@ AI-driven personal reading pipeline. Pulls content from RSS/WeChat/arXiv pipes i
 
 The 2026-09 rebuild (`openspec/changes/rebuild-domain-model/`) replaced the old flat `Source`/`Item` tables with a class-table-inheritance model (`doc` identity layer + `paper`/`repo`/`article` entity tables), replaced free-text categories with `domain` (AI picks domains per doc), and renamed sources to `pipe` (shared vs domain-derived). The old SQLite database was migrated and deleted; the only rollback is `data/feed-curator.db.bak-20260923`.
 
+## Workflow rules
+
+- **Development goes through OpenSpec.** Non-trivial work starts as an OpenSpec
+  change (`openspec new change "<name>"` → proposal → specs → design → tasks) and
+  gets implemented by working through its task list (`/opsx:apply`). Do not
+  implement features ad hoc outside a change.
+- **Never push directly to `main`.** Push a feature branch, open a PR, merge it,
+  then sync local `main`. `git push origin main` (or any direct push to `main`)
+  is forbidden — even when the user says "push 一个版本", do it via PR.
+
 ## Commands
 
 ```bash
