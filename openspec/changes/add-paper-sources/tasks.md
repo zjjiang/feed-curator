@@ -11,11 +11,11 @@
 
 ## 2. B — 论文 URL 规范化 + 补空回填(身份层)
 
-- [ ] 2.1 先写测试:`tests/utils/test_paper_identity.py`(或并入现有 url_key 测试旁)——abs/pdf/html × 带版本/不带版本 × arxiv/www/export host 全组合归并为同一 `https://arxiv.org/abs/{id}`;非 arXiv URL 原样返回;解析不出 id 的 arxiv 链接原样返回。RED
-- [ ] 2.2 实现 `app/utils/paper_identity.py`(canonical 函数),`app/jobs/fetcher.py:_ingest_item` 判型为 paper 后:canonical URL 传 `upsert_doc`,原始 URL 仍传 `build_detail`(保留 version 解析)。RED→GREEN
-- [ ] 2.3 先写测试:`tests/test_writer.py` 增补补空回填——已存在 doc 再次 upsert 时空字段(abstract/categories/pdf_url/version/submitted_at/extra)被补齐、非空字段不覆盖、无可补字段时实体行不变、补空不新增第二条 discovery 之外副作用。RED
-- [ ] 2.4 `app/writer.py:upsert_doc` 已存在分支实现补空回填(仅 paper 实体)。RED→GREEN
-- [ ] 2.5 验证多源归并集成测试:模拟 HF 条目(id 构造 canonical abs)先入库、HN 风格 pdf 链接再入库 → 单 doc 两条 discovery
+- [x] 2.1 先写测试:`tests/utils/test_paper_identity.py`(或并入现有 url_key 测试旁)——abs/pdf/html × 带版本/不带版本 × arxiv/www/export host 全组合归并为同一 `https://arxiv.org/abs/{id}`;非 arXiv URL 原样返回;解析不出 id 的 arxiv 链接原样返回。RED
+- [x] 2.2 实现 `app/utils/paper_identity.py`(canonical 函数),`app/jobs/fetcher.py:_ingest_item` 判型为 paper 后:canonical URL 传 `upsert_doc`,原始 URL 仍传 `build_detail`(保留 version 解析)。RED→GREEN
+- [x] 2.3 先写测试:`tests/test_writer.py` 增补补空回填——已存在 doc 再次 upsert 时空字段(abstract/categories/pdf_url/version/submitted_at/extra)被补齐、非空字段不覆盖、无可补字段时实体行不变、补空不新增第二条 discovery 之外副作用。RED
+- [x] 2.4 `app/writer.py:upsert_doc` 已存在分支实现补空回填(仅 paper 实体)。RED→GREEN
+- [x] 2.5 验证多源归并集成测试:模拟 HF 条目(id 构造 canonical abs)先入库、HN 风格 pdf 链接再入库 → 单 doc 两条 discovery
 
 ## 3. C — arXiv 关键词派生管道
 
@@ -26,7 +26,7 @@
 
 ## 4. D — hf_papers 适配器 + extra 列
 
-- [ ] 4.1 先写 schema 测试:`tests/models/` 增补 `paper.extra`(LongText,双方言编译);确认 test_schema 通过后改 `app/models/doc.py` 加列。RED→GREEN
+- [x] 4.1 先写 schema 测试:`tests/models/` 增补 `paper.extra`(LongText,双方言编译);确认 test_schema 通过后改 `app/models/doc.py` 加列。RED→GREEN
 - [ ] 4.2 写幂等迁移脚本 `scripts/migration/add_paper_extra.py`(information_schema 检查列存在与否,缺则 ALTER)。验证:对本地 MySQL 跑两遍,第二遍 no-op
 - [ ] 4.3 先写测试:`tests/adapters/test_hf_papers.py` 用真实 API 形状的离线 fixture(脱敏自 2026-09-23 实测响应)——标准条目映射(id→external_id、canonical abs URL、summary→abstract、authors[].name→all_authors、pdf_url 构造、upvotes/githubRepo/githubStars→meta.extra、publishedAt→published_at)、缺 categories 不算失败、条目 id 形态非法记条目级错误、三日期窗口调用、镜像结构异常触发回退(代理直连官方域)、全出口失败抛错给 fetcher 隔离层。RED
 - [ ] 4.4 实现 `app/adapters/hf_papers.py`(默认出口 hf-mirror,`config.base_url` 可覆盖;日期窗口取 UTC 今天/昨天/前天;走出网收口,国内直连优先)。RED→GREEN

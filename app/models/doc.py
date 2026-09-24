@@ -40,6 +40,7 @@ class Paper(Base):
     arxiv_id = Column(String(64), index=True)   # 2606.02578;非 arXiv 论文为空
     version = Column(String(8))                 # v1
     submitted_at = Column(Integer)
+    extra = Column(LongText)    # JSON 对象字符串:源侧策展信号(upvotes/githubRepo 等)
 
 
 class Repo(Base):

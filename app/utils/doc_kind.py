@@ -6,6 +6,8 @@ Kind = Literal["paper", "repo", "article"]
 
 # abs/pdf/html 均指向同一篇论文，判成 article 会导致同论文两个 doc
 _ARXIV_PAPER_SECTIONS = frozenset({"abs", "pdf", "html"})
+# www/export 是同一站点的镜像 host,身份规范化(paper_identity)依赖此处放宽
+_ARXIV_PAPER_HOSTS = frozenset({"arxiv.org", "www.arxiv.org", "export.arxiv.org"})
 
 
 def detect_kind(url: str) -> Kind:
@@ -17,7 +19,7 @@ def detect_kind(url: str) -> Kind:
     host = parts.hostname or ""
     segments = [s for s in parts.path.split("/") if s]
 
-    if host == "arxiv.org":
+    if host in _ARXIV_PAPER_HOSTS:
         if segments and segments[0] in _ARXIV_PAPER_SECTIONS:
             return "paper"
         return "article"

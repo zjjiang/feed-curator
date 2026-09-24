@@ -15,6 +15,7 @@ from app.adapters import FetchedItem, get_adapter
 from app.models import Domain, Pipe, RunLog
 from app.services.doc_fields import build_detail, detect_doc_kind, parse_github_owner_name
 from app.utils.html_clean import estimate_word_count
+from app.utils.paper_identity import canonical_paper_url
 from app.writer import UpsertResult, upsert_doc
 
 
@@ -83,6 +84,8 @@ def _ingest_item(db: Session, pipe: Pipe, fi: FetchedItem) -> UpsertResult | Non
     if not url.startswith(("http://", "https://")):
         raise ValueError(f"条目缺少可用 URL: {fi.title!r}")
     kind = detect_doc_kind(url)
+    # 论文身份规范化:文档 URL 用规范身份(跨源去重),字段解析仍用原始 URL
+    doc_url = canonical_paper_url(url) if kind == "paper" else url
     detail = build_detail(
         kind,
         url=url,
@@ -98,7 +101,7 @@ def _ingest_item(db: Session, pipe: Pipe, fi: FetchedItem) -> UpsertResult | Non
     return upsert_doc(
         db,
         kind=kind,
-        url=url,
+        url=doc_url,
         title=fi.title or "(无标题)",
         detail=detail,
         pipe_id=pipe.id,

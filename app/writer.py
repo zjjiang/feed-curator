@@ -15,6 +15,10 @@ from app.utils.url_key import normalize_url
 
 _ENTITY_MODEL = {"paper": Paper, "repo": Repo, "article": Article}
 
+# 再次采集允许补空的 paper 字段;实体固有属性照常一等存储(design 决策 3)
+_PAPER_BACKFILL_FIELDS = ("abstract", "content_text", "authors", "categories",
+                          "pdf_url", "version", "submitted_at", "extra")
+
 
 @dataclass(frozen=True)
 class UpsertResult:
@@ -52,6 +56,7 @@ def upsert_doc(
 
     existing = db.query(Doc).filter(Doc.url_key == url_key).first()
     if existing is not None:
+        _backfill_paper(db, existing, kind, detail)
         seen = (
             db.query(Discovery)
             .filter(Discovery.pipe_id == pipe_id, Discovery.external_id == external_id)
@@ -84,6 +89,29 @@ def upsert_doc(
         db.rollback()
         raise
     return UpsertResult(doc.id, True, True)
+
+
+def _backfill_paper(db: Session, doc: Doc, kind: str, detail: dict) -> None:
+    """已存在 doc 再次采集时补齐 paper 实体行的空字段;非空不覆盖。
+
+    补空是自愈式字段补全(策展层先到的论文由召回层补全),只在确实
+    补进数据时提交;无可补字段时实体行一个字节都不动。不触碰判定结果。
+    """
+    if kind != "paper":
+        return
+    paper = db.get(Paper, doc.id)
+    if paper is None:
+        return
+    changed = False
+    for field in _PAPER_BACKFILL_FIELDS:
+        new_value = detail.get(field)
+        if not new_value:
+            continue
+        if not getattr(paper, field):
+            setattr(paper, field, new_value)
+            changed = True
+    if changed:
+        db.commit()
 
 
 def _commit(db: Session) -> None:

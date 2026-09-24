@@ -191,6 +191,7 @@ class TestDialectCompatibility:
         for table_name, col_name in (
             ("paper", "abstract"),
             ("paper", "content_text"),
+            ("paper", "extra"),
             ("repo", "readme_text"),
             ("article", "content_text"),
             ("article", "content_html"),
@@ -200,6 +201,14 @@ class TestDialectCompatibility:
             ddl = str(CreateTable(table).compile(dialect=mysql.dialect()))
             col_type = table.c[col_name].type.compile(mysql.dialect())
             assert col_type.upper() == "LONGTEXT", f"{table_name}.{col_name} 在 MySQL 下是 {col_type},不是 LONGTEXT"
+
+    def test_paper_extra_holds_source_signals(self, db_session):
+        doc = _doc(db_session, kind="paper", url_key="https://arxiv.org/abs/2609.25804")
+        db_session.add(Paper(id=doc.id, extra='{"upvotes": 42, "githubRepo": "acme/vla"}'))
+        db_session.flush()
+        paper = db_session.get(Paper, doc.id)
+        assert paper.extra is not None
+        # extra 不参与判型与去重:不设任何约束,容忍 JSON 形态随源演化
 
     def test_url_key_index_fits_mysql_byte_limit(self):
         # utf8mb4 每字符 4 字节,InnoDB 索引上限 3072 字节 → 500*4=2000 安全

@@ -103,6 +103,85 @@ class IntegrityErrorSim(Exception):
     pass
 
 
+class TestPaperBackfill:
+    """再次采集补空回填:空字段补齐、非空不覆盖、无可补则实体行不变。"""
+
+    URL = "https://arxiv.org/abs/2606.02578"
+    RICH_DETAIL = {
+        "abstract": "新摘要",
+        "content_text": "新正文",
+        "authors": '["新人"]',
+        "categories": '["cs.RO"]',
+        "pdf_url": "https://arxiv.org/pdf/2606.02578",
+        "version": "v2",
+        "submitted_at": 555,
+        "extra": '{"upvotes": 9}',
+    }
+
+    def _upsert_paper(self, db, *, pipe_id=1, external_id="p1", detail):
+        return upsert_doc(db, kind="paper", url=self.URL, title="论文",
+                          detail=detail, pipe_id=pipe_id, external_id=external_id,
+                          sort_time=100)
+
+    def _columns(self, paper):
+        return {c: getattr(paper, c) for c in
+                ("abstract", "content_text", "authors", "categories", "pdf_url",
+                 "version", "submitted_at", "extra")}
+
+    def test_empty_fields_backfilled_on_reingest(self, db_session):
+        # 策展层先行:只有摘要,其余全空
+        self._upsert_paper(db_session, detail={"abstract": "旧摘要"})
+
+        r2 = self._upsert_paper(db_session, pipe_id=2, external_id="p9",
+                                detail=self.RICH_DETAIL)
+        paper = db_session.query(Paper).one()
+        assert paper.categories == '["cs.RO"]'
+        assert paper.pdf_url == "https://arxiv.org/pdf/2606.02578"
+        assert paper.version == "v2"
+        assert paper.submitted_at == 555
+        assert paper.content_text == "新正文"
+        assert paper.authors == '["新人"]'
+        assert paper.extra == '{"upvotes": 9}'
+        assert not r2.doc_created and r2.discovery_created
+
+    def test_non_empty_fields_not_overwritten(self, db_session):
+        self._upsert_paper(db_session, detail={"abstract": "旧摘要",
+                                               "submitted_at": 111})
+        self._upsert_paper(db_session, pipe_id=2, external_id="p9",
+                           detail=self.RICH_DETAIL)
+        paper = db_session.query(Paper).one()
+        assert paper.abstract == "旧摘要"
+        assert paper.submitted_at == 111
+
+    def test_same_pipe_reingest_also_backfills(self, db_session):
+        self._upsert_paper(db_session, detail={"abstract": "旧摘要"})
+        r2 = self._upsert_paper(db_session, detail={"abstract": "旧摘要",
+                                                    "version": "v2"})
+        paper = db_session.query(Paper).one()
+        assert paper.version == "v2"
+        assert not r2.doc_created and not r2.discovery_created
+        assert db_session.query(Discovery).count() == 1
+
+    def test_nothing_to_fill_leaves_entity_row_unchanged(self, db_session):
+        self._upsert_paper(db_session, detail=dict(self.RICH_DETAIL))
+        before = self._columns(db_session.query(Paper).one())
+        r2 = self._upsert_paper(db_session, pipe_id=2, external_id="p9",
+                                detail=dict(self.RICH_DETAIL))
+        after = self._columns(db_session.query(Paper).one())
+        assert before == after
+        assert not r2.doc_created and r2.discovery_created
+
+    def test_backfill_does_not_touch_repo_or_article(self, db_session):
+        upsert_doc(db_session, kind="repo", url="https://github.com/o/r",
+                   title="仓库", detail={"description": "旧描述"},
+                   pipe_id=1, external_id="r1")
+        upsert_doc(db_session, kind="repo", url="https://github.com/o/r",
+                   title="仓库", detail={"description": "新描述"},
+                   pipe_id=2, external_id="r2")
+        repo = db_session.query(Repo).one()
+        assert repo.description == "旧描述"
+
+
 class TestRefreshRepo:
     def _seed_repo(self, db_session) -> int:
         r = upsert_doc(
