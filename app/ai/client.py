@@ -66,7 +66,7 @@ class LLMClient:
             {"role": "user", "content": prompt},
         ]
         try:
-            raw = self.chat(messages)
+            raw = self.chat(messages, max_tokens=2000)   # 800 会截断中文 JSON(summary+keypoints)
             data = _parse_json(raw)
         except (json.JSONDecodeError, httpx.HTTPError, KeyError) as e:
             print(f"[ai] 判定失败: {type(e).__name__}: {e}")
