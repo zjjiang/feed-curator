@@ -79,6 +79,7 @@ class TestSaveUrlRepoReadme:
         client = github_factory(FakeGithubClient({"acme/cool-repo": "# Cool\n正文"}))
         r = manual_service.save_url(db_session, "https://github.com/acme/cool-repo")
         assert r["kind"] == "repo" and r["error"] is None
+        assert r["title"] == "https://github.com/acme/cool-repo"
         repo = db_session.query(Repo).one()
         assert repo.readme_text == "# Cool\n正文"
         assert client.calls == ["acme/cool-repo"]
@@ -117,6 +118,7 @@ class TestSaveUrlArticle:
         monkeypatch.setattr(fulltext, "fetch_and_parse", fake_fetch_and_parse)
         r = manual_service.save_url(db_session, "https://example.com/post")
         assert r["kind"] == "article" and r["error"] is None
+        assert r["title"] == "抓到的标题"
         from app.models import Article
         article = db_session.query(Article).one()
         assert article.content_text == "正文"
@@ -214,6 +216,7 @@ class TestSaveUrlPaper:
         assert db_session.query(Doc).count() == 1
         doc = db_session.query(Doc).one()
         assert doc.url == "https://arxiv.org/abs/2606.02578"
+        assert r2["title"] == doc.title  # 已存在文档返回库内标题
 
 
 class TestSaveUrlRetryBackfill:

@@ -159,4 +159,5 @@ def save_url(db: Session, url: str, note: str | None = None) -> dict:
         "kind": kind,
         "created": result.doc_created,
         "error": fetch_error,
+        "title": db.get(Doc, result.doc_id).title,
     }

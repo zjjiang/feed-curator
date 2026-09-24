@@ -14,7 +14,7 @@ TDD:每个实现任务先写失败测试再实现。测试沿用 tests/ 既有�
 - [x] 2.3 paper 补全测试:手工存入 arXiv abs 链接时,入库前经 export.arxiv.org API(单 id)抓取(mock MockTransport)并写入 abstract/authors/categories/version/submitted_at;失败 → 降级入库。运行确认 RED
 - [x] 2.4 实现 paper 补全:`paper_identity` 提取 arxiv_id → 经 `outbound.request` 请求 Atom API(复用 adapter 解析)→ `build_detail` 带入字段。运行确认 GREEN
 - [x] 2.5 重试与去重测试:同一链接再次提交——字段已填 MUST NOT 再发抓取请求;字段为空 SHALL 重试并经 `upsert_doc` 补空回填。运行确认 RED→GREEN
-- [ ] 2.6 save_url 返回值补 `title` 字段,MCP 工具透传;测试断言返回含 title
+- [x] 2.6 save_url 返回值补 `title` 字段,MCP 工具透传;测试断言返回含 title
 
 ## 3. 集成验证与收尾
 
