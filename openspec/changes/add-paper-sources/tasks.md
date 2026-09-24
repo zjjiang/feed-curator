@@ -23,6 +23,7 @@
 - [ ] 3.2 `resolve_fetch_config` 加 arxiv 分支;`app/adapters/arxiv.py` 支持 `config.query` 关键词模式(逐词 `all:"kw"`,剥内嵌引号,OR 连接,整体 URL 编码;`sortBy=submittedDate&sortOrder=descending`),无 query 时走原 category 模式。RED→GREEN
 - [ ] 3.3 适配器网络调用改走出网收口(境外标记),MockTransport 测试覆盖关键词模式请求形状。验证:pytest 通过
 - [ ] 3.4 实测一次真实查询(实现后手动或集成标记测试):具身智能关键词的 query 命中量与相关性符合 design 推演 1 预期
+  - ⚠️ 2026-09-24 实测受阻:arXiv API 服务端当日开始拒绝一切复合查询(OR 短语/AND/官方文档示例均 406,换出口 IP、冷却 150s 单发均复现;设计当日实测仍命中 4429)。实现代码经 MockTransport 全量验证,待上游恢复后复测(管道每 240min 自动重试,last_error 可见)
 
 ## 4. D — hf_papers 适配器 + extra 列
 
@@ -35,9 +36,11 @@
 
 ## 5. E — 运营切换与验收
 
-- [ ] 5.1 对本地 MySQL 执行 4.2 的 ALTER 脚本。验证:`SHOW COLUMNS FROM paper LIKE 'extra'`
-- [ ] 5.2 管理后台操作:新建「具身智能」arxiv 派生管道 ×2(替代 cs.AI / cs.RO,fetch_interval_min=240)、新建 hf_papers 管道(360),手动触发各一次。验证:run_log 有成功记录,pipe.last_error 为空
+- [x] 5.1 对本地 MySQL 执行 4.2 的 ALTER 脚本。验证:`SHOW COLUMNS FROM paper LIKE 'extra'`
+- [x] 5.2 管理后台操作:新建「具身智能」arxiv 派生管道 ×2(替代 cs.AI / cs.RO,fetch_interval_min=240)、新建 hf_papers 管道(360),手动触发各一次。验证:run_log 有成功记录,pipe.last_error 为空
+  - hf_papers 成功(inserted=58);两条 arxiv 派生按用户决策「照常建,等自愈」——因 arXiv API 服务端 406(见 3.4)当前 failed,last_error 可见,每周期自动重试
 - [ ] 5.3 核对多源去重:HF 与 arXiv 派生都跑过后,`SELECT arxiv_id, count(*) FROM paper GROUP BY arxiv_id HAVING count(*)>1` 仍为空;HF 收到且被派生管道再采到的论文 categories 已补全
-- [ ] 5.4 核对 extra 落库:带 githubRepo 的 HF 条目在 paper.extra 可查
-- [ ] 5.5 全量回归:`uv run pytest` 全绿、`uv run pytest --cov=app` 覆盖率 ≥ 80%
+  - 去重检查已通过(6 组接缝重复经 merge_legacy_paper_duplicates.py 并归,复跑幂等);categories 补全待 arXiv 恢复、派生管道首次成功后复核
+- [x] 5.4 核对 extra 落库:带 githubRepo 的 HF 条目在 paper.extra 可查
+- [x] 5.5 全量回归:`uv run pytest` 全绿、`uv run pytest --cov=app` 覆盖率 ≥ 80%
 - [ ] 5.6 明早向用户汇报:新管道列表、首日抓取量、与推演 1 的量级对比、hf-mirror 健康度
