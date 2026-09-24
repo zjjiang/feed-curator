@@ -110,7 +110,7 @@ class TestFetchSource:
 
 
 class TestResolveFetchConfig:
-    def test_derived_github_query_from_domain_keywords(self, db_session):
+    def test_derived_github_keywords_from_domain(self, db_session):
         d = Domain(name="具身智能", keywords='["具身智能", "humanoid robot"]',
                    created_at=NOW, updated_at=NOW)
         db_session.add(d)
@@ -121,14 +121,14 @@ class TestResolveFetchConfig:
         db_session.commit()
 
         cfg = resolve_fetch_config(db_session, p)
-        assert cfg["query"] == "具身智能 humanoid robot"
+        assert cfg["keywords"] == ["具身智能", "humanoid robot"]
         assert cfg["min_stars"] == 20
 
-        # 领域新增关键词后,下次采集即用新查询条件
+        # 领域新增关键词后,下次采集即用新关键词
         db_session.query(Domain).filter(Domain.id == d.id).update({
             Domain.keywords: '["具身智能", "humanoid robot", "VLA"]'})
         db_session.commit()
-        assert "VLA" in resolve_fetch_config(db_session, p)["query"]
+        assert resolve_fetch_config(db_session, p)["keywords"][-1] == "VLA"
 
     def test_shared_pipe_config_untouched(self, db_session):
         p = Pipe(type="rss", name="共享", config='{"feed_url": "https://x/feed"}',
@@ -146,3 +146,198 @@ class TestResolveFetchConfig:
         db_session.add(p)
         db_session.commit()
         assert resolve_fetch_config(db_session, p)["query"] == "fallback"
+
+
+GH_ROWS = [
+    {
+        "full_name": "acme/vla-robot",
+        "html_url": "https://github.com/acme/vla-robot",
+        "description": "A VLA model",
+        "stargazers_count": 1234,
+        "forks_count": 56,
+        "open_issues_count": 7,
+        "language": "Python",
+        "topics": ["vla", "robotics"],
+        "license": {"spdx_id": "MIT"},
+        "pushed_at": "2026-09-20T08:00:00Z",
+    },
+    {
+        "full_name": "acme/manipulation",
+        "html_url": "https://github.com/acme/manipulation",
+        "description": "Manipulation toolkit",
+        "stargazers_count": 300,
+        "forks_count": 20,
+        "open_issues_count": 3,
+        "language": "C++",
+        "topics": [],
+        "license": None,
+        "pushed_at": "2026-09-19T08:00:00Z",
+    },
+]
+
+
+def _patch_github_client(monkeypatch, rows):
+    from datetime import UTC, datetime
+
+    class FakeClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def search_repositories(self, query, *, per_page=30):
+            return rows
+
+    captured = {}
+    monkeypatch.setattr(
+        "app.adapters.github.GitHubClient", lambda: FakeClient())
+    return int(datetime(2026, 9, 20, 8, 0, 0, tzinfo=UTC).timestamp())
+
+
+class TestGithubPipe:
+    def _derived_pipe(self, db_session):
+        d = Domain(name="具身智能", keywords='["具身智能", "VLA"]',
+                   created_at=NOW, updated_at=NOW)
+        db_session.add(d)
+        db_session.flush()
+        p = Pipe(type="github", name="具身智能GitHub", config="{}",
+                 domain_id=d.id, created_at=NOW, updated_at=NOW)
+        db_session.add(p)
+        db_session.commit()
+        return p
+
+    def test_github_pipe_ingests_repo_entities(self, db_session, monkeypatch):
+        pushed_ts = _patch_github_client(monkeypatch, GH_ROWS)
+        pipe = self._derived_pipe(db_session)
+
+        inserted, err = fetch_source(db_session, pipe, trigger="manual")
+        assert err is None
+        assert inserted == 2
+
+        repos = {r.name: r for r in db_session.query(Repo).all()}
+        assert set(repos) == {"vla-robot", "manipulation"}
+        vla = repos["vla-robot"]
+        assert vla.owner == "acme"
+        assert vla.stars == 1234
+        assert vla.forks == 56
+        assert vla.open_issues == 7
+        assert vla.language == "Python"
+        assert vla.topics == '["vla", "robotics"]'
+        assert vla.license == "MIT"
+        doc = db_session.query(Doc).filter(Doc.id == vla.id).one()
+        assert doc.kind == "repo"
+        assert doc.sort_time == pushed_ts
+
+        log = db_session.query(RunLog).one()
+        assert log.kind == "fetch" and log.inserted == 2 and log.status == "done"
+
+    def test_github_refetch_is_noop(self, db_session, monkeypatch):
+        _patch_github_client(monkeypatch, GH_ROWS)
+        pipe = self._derived_pipe(db_session)
+        fetch_source(db_session, pipe, trigger="manual")
+        inserted, err = fetch_source(db_session, pipe, trigger="manual")
+        assert inserted == 0 and err is None
+        assert db_session.query(Doc).count() == 2
+
+    def test_repo_already_seen_via_rss_not_duplicated(self, db_session, pipe,
+                                                      monkeypatch):
+        # RSS 先采到同一仓库(仅标题+URL),github 管道再采只补 discovery
+        db_session.query(Pipe).filter(Pipe.id == pipe.id) \
+            .update({Pipe.config: json.dumps({"feed_url": FEED_XML})})
+        db_session.commit()
+        fetch_source(db_session, pipe, trigger="manual")
+
+        _patch_github_client(monkeypatch, [
+            {**GH_ROWS[0], "full_name": "acme/robot-arm",
+             "html_url": "https://github.com/acme/robot-arm"}])
+        gh = Pipe(type="github", name="GH", config='{"query": "VLA stars:>=50"}',
+                  created_at=NOW, updated_at=NOW)
+        db_session.add(gh)
+        db_session.commit()
+
+        inserted, err = fetch_source(db_session, gh, trigger="manual")
+        # 不产生新文档,但 github 管道自身的 discovery 记一条(inserted 计 discovery)
+        assert err is None and inserted == 1
+        assert db_session.query(Doc).count() == 3
+        assert db_session.query(Repo).count() == 1
+        gh_disc = db_session.query(Discovery).filter(Discovery.pipe_id == gh.id).all()
+        assert len(gh_disc) == 1
+
+
+class _FakeReadmeClient:
+    """同一假客户端同时应付搜索与 README:full_name → readme 正文。"""
+
+    def __init__(self, readmes=None, failures=()):
+        self.readmes = readmes or {}
+        self.failures = set(failures)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def search_repositories(self, query, *, per_page=30):
+        return GH_ROWS
+
+    def get_readme(self, owner, name):
+        key = f"{owner}/{name}"
+        if key in self.failures:
+            raise RuntimeError("网络炸了")
+        return self.readmes.get(key)
+
+    def close(self):
+        pass
+
+
+class TestGithubReadmeEnrichment:
+    def _derived_pipe(self, db_session):
+        d = Domain(name="具身智能", keywords='["VLA"]',
+                   created_at=NOW, updated_at=NOW)
+        db_session.add(d)
+        db_session.flush()
+        p = Pipe(type="github", name="具身智能GitHub", config="{}",
+                 domain_id=d.id, created_at=NOW, updated_at=NOW)
+        db_session.add(p)
+        db_session.commit()
+        return p
+
+    def test_new_repo_readme_filled_in_same_cycle(self, db_session, monkeypatch):
+        fake = _FakeReadmeClient({"acme/vla-robot": "# VLA\n说明",
+                                  "acme/manipulation": "# Manip"})
+        monkeypatch.setattr("app.adapters.github.GitHubClient", lambda: fake)
+        monkeypatch.setattr("app.services.repo_enrich.GitHubClient", lambda: fake)
+        pipe = self._derived_pipe(db_session)
+
+        inserted, err = fetch_source(db_session, pipe, trigger="manual")
+        assert err is None and inserted == 2
+
+        readmes = {r.name: r.readme_text for r in db_session.query(Repo).all()}
+        assert readmes == {"vla-robot": "# VLA\n说明", "manipulation": "# Manip"}
+        # 补全不产生额外采集记录
+        assert db_session.query(RunLog).count() == 1
+
+    def test_readme_failure_keeps_doc_ingested(self, db_session, monkeypatch):
+        fake = _FakeReadmeClient(failures={"acme/vla-robot", "acme/manipulation"})
+        monkeypatch.setattr("app.adapters.github.GitHubClient", lambda: fake)
+        monkeypatch.setattr("app.services.repo_enrich.GitHubClient", lambda: fake)
+        pipe = self._derived_pipe(db_session)
+
+        inserted, err = fetch_source(db_session, pipe, trigger="manual")
+        assert err is None and inserted == 2
+        assert all(r.readme_text is None for r in db_session.query(Repo).all())
+
+    def test_refetch_does_not_refetch_readme(self, db_session, monkeypatch):
+        fake = _FakeReadmeClient({"acme/vla-robot": "# VLA\n说明",
+                                  "acme/manipulation": "# Manip"})
+        monkeypatch.setattr("app.adapters.github.GitHubClient", lambda: fake)
+        monkeypatch.setattr("app.services.repo_enrich.GitHubClient", lambda: fake)
+        pipe = self._derived_pipe(db_session)
+        fetch_source(db_session, pipe, trigger="manual")
+
+        fake.readmes = {}  # 第二轮即使 README 抓不到了,已入库的也不应重抓
+        inserted, err = fetch_source(db_session, pipe, trigger="manual")
+        assert err is None
+        readmes = {r.name: r.readme_text for r in db_session.query(Repo).all()}
+        assert readmes == {"vla-robot": "# VLA\n说明", "manipulation": "# Manip"}

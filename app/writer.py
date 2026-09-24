@@ -102,10 +102,14 @@ def refresh_repo(
     forks: int | None = None,
     open_issues: int | None = None,
     pushed_at: int | None = None,
+    stars_prev: int | None = None,
+    stars_gained: int | None = None,
 ) -> None:
     """刷新仓库数据:repo.* 与 doc.sort_time / doc.last_modified_at 同步更新。
 
     只动 repo 与 doc 两张表,不触碰 analysis / membership 等判定结果。
+    stars_prev / stars_gained 是相对上次刷新的增量快照,由刷新作业计算后传入;
+    不传则保持原值(首次刷新两者皆为 NULL)。
     """
     now = _now()
     repo = db.get(Repo, doc_id)
@@ -119,6 +123,10 @@ def refresh_repo(
         repo.open_issues = open_issues
     if pushed_at is not None:
         repo.pushed_at = pushed_at
+    if stars_prev is not None:
+        repo.stars_prev = stars_prev
+    if stars_gained is not None:
+        repo.stars_gained = stars_gained
     repo.refreshed_at = now
 
     doc = db.get(Doc, doc_id)

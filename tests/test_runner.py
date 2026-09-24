@@ -146,7 +146,7 @@ class TestSchedulerCycles:
             Pipe(id=3, type="rss", name="disabled", config="{}", enabled=0,
                  fetch_interval_min=30, last_fetched_at=NOW - 3600,
                  created_at=NOW, updated_at=NOW),
-            Pipe(id=4, type="github", name="unsupported", config="{}", enabled=1,
+            Pipe(id=4, type="no-such-type", name="unsupported", config="{}", enabled=1,
                  fetch_interval_min=30, last_fetched_at=NOW - 3600,
                  created_at=NOW, updated_at=NOW),
             Pipe(id=5, type="manual", name="manual", config="{}", enabled=0,

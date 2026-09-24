@@ -13,9 +13,9 @@ from sqlalchemy.orm import Session
 
 from app.adapters import FetchedItem, get_adapter
 from app.models import Domain, Pipe, RunLog
-from app.services.doc_fields import build_detail, detect_doc_kind
+from app.services.doc_fields import build_detail, detect_doc_kind, parse_github_owner_name
 from app.utils.html_clean import estimate_word_count
-from app.writer import upsert_doc
+from app.writer import UpsertResult, upsert_doc
 
 
 def now_ts() -> int:
@@ -23,14 +23,14 @@ def now_ts() -> int:
 
 
 def resolve_fetch_config(db: Session, pipe: Pipe) -> dict[str, Any]:
-    """管道生效配置。派生管道的查询条件实时由所属领域关键词生成,
-    领域改关键词后下次采集即用新条件。"""
+    """管道生效配置。派生 github 管道把领域关键词列表注入 config,
+    最终检索串由适配器组装(ASCII 过滤/OR/热度限定符);关键词改后下次采集即生效。"""
     config = json.loads(pipe.config) if pipe.config else {}
     if pipe.domain_id and pipe.type == "github":
         domain = db.get(Domain, pipe.domain_id)
         keywords = json.loads(domain.keywords) if domain and domain.keywords else []
         if keywords:
-            config["query"] = " ".join(keywords)[:256]
+            config["keywords"] = keywords
     return config
 
 
@@ -52,15 +52,20 @@ def fetch_source(db: Session, pipe: Pipe, trigger: str = "auto") -> tuple[int, s
                        error=error, started=started)
         return 0, error
 
-    inserted = 0
+    ingested: list[tuple[FetchedItem, UpsertResult]] = []
     item_errors: list[str] = []
     for fi in items:
         try:
             result = _ingest_item(db, pipe, fi)
-            if result:
-                inserted += 1
+            if result is not None:
+                ingested.append((fi, result))
         except Exception as e:  # noqa: BLE001
             item_errors.append(f"{fi.external_id}: {type(e).__name__}: {e}")
+
+    inserted = sum(1 for _, r in ingested if r.discovery_created)
+
+    if pipe.type == "github":
+        _enrich_new_github_repos(db, ingested)
 
     error = None
     if item_errors:
@@ -72,8 +77,8 @@ def fetch_source(db: Session, pipe: Pipe, trigger: str = "auto") -> tuple[int, s
     return inserted, error
 
 
-def _ingest_item(db: Session, pipe: Pipe, fi: FetchedItem) -> bool:
-    """单条目入库。返回是否产生了新的采集记录。"""
+def _ingest_item(db: Session, pipe: Pipe, fi: FetchedItem) -> UpsertResult | None:
+    """单条目入库,返回写入结果(None 表示被并发去重吞掉)。"""
     url = (fi.url or "").strip() or (fi.external_id or "").strip()
     if not url.startswith(("http://", "https://")):
         raise ValueError(f"条目缺少可用 URL: {fi.title!r}")
@@ -90,7 +95,7 @@ def _ingest_item(db: Session, pipe: Pipe, fi: FetchedItem) -> bool:
         published_at=fi.published_at,
         meta=fi.meta,
     )
-    result = upsert_doc(
+    return upsert_doc(
         db,
         kind=kind,
         url=url,
@@ -100,7 +105,29 @@ def _ingest_item(db: Session, pipe: Pipe, fi: FetchedItem) -> bool:
         external_id=fi.external_id,
         sort_time=fi.published_at,
     )
-    return result.discovery_created
+
+
+def _enrich_new_github_repos(
+    db: Session,
+    ingested: list[tuple[FetchedItem, UpsertResult]],
+) -> None:
+    """github 管道新入库的仓库,在同一采集周期内补全 README。
+
+    首判分析只发生一次,README 必须赶在判定之前就位;失败不阻塞、不报错。
+    """
+    from app.services import repo_enrich
+
+    entries = []
+    for fi, result in ingested:
+        if not result.doc_created:
+            continue
+        if detect_doc_kind(fi.url or "") != "repo":
+            continue
+        owner, name = parse_github_owner_name(fi.url)
+        if owner and name:
+            entries.append((result.doc_id, owner, name))
+    if entries:
+        repo_enrich.enrich_new_repos(db, entries)
 
 
 def _mark_pipe(db: Session, pipe: Pipe, error: str | None) -> None:

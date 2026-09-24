@@ -11,11 +11,17 @@
   <div class="card"><div class="num" style="color: {{ 'var(--err)' if summary.orphan_docs else 'var(--ok)' }}">{{ summary.orphan_docs }}</div><div class="muted">孤儿 doc</div></div>
 </div>
 
+{% set kind_labels = {'fetch':'采集','analyze':'AI 判定','fulltext':'正文补全','refresh':'星标刷新','readme':'README 补全'} %}
+{% set msgs = {'refresh_started':'星标刷新已启动,进度见最近运行','refresh_busy':'已有星标刷新在运行','readme_started':'README 补抓已开始(50 个/批)','readme_busy':'已有 README 补抓在运行'} %}
+{% if request.query_params.get('msg') in msgs %}
+<div class="card muted">{{ msgs[request.query_params.get('msg')] }}</div>
+{% endif %}
+
 {% if summary.running %}
 <h2>进行中</h2>
 {% for r in summary.running %}
 <div class="card">
-  <strong>{{ {'fetch':'采集','analyze':'AI 判定','fulltext':'正文补全'}.get(r.kind, r.kind) }}</strong>
+  <strong>{{ kind_labels.get(r.kind, r.kind) }}</strong>
   {{ r.pipe_name or '' }} · {{ r.processed }}/{{ r.total }}
   {% if r.kind == 'analyze' %}
   <form class="inline" method="post" action="/api/runs/{{ r.id }}/cancel">
@@ -34,7 +40,13 @@
   <form class="inline" method="post" action="/api/fulltext/run">
     <button>补全一批正文(50 篇)</button>
   </form>
-  <span class="muted">判定需要配置 DEEPSEEK_API_KEY;补全限速 1 秒/篇。</span>
+  <form class="inline" method="post" action="/admin/repos/refresh">
+    <button>刷新仓库星标</button>
+  </form>
+  <form class="inline" method="post" action="/admin/repos/readme">
+    <button>补抓 README</button>
+  </form>
+  <span class="muted">判定需要配置 DEEPSEEK_API_KEY;补全与补抓限速 1 秒/篇。</span>
 </div>
 
 <h2>最近运行</h2>
@@ -43,7 +55,7 @@
 {% for r in run_rows %}
 <tr>
   <td class="muted">{{ r.id }}</td>
-  <td><span class="tag">{{ {'fetch':'采集','analyze':'判定','fulltext':'补全'}.get(r.kind, r.kind) }}</span></td>
+  <td><span class="tag">{{ kind_labels.get(r.kind, r.kind) }}</span></td>
   <td>{{ r.pipe_name }}</td>
   <td class="muted">{{ r.trigger }}</td>
   <td class="status-{{ r.status }}">{{ r.status }}</td>

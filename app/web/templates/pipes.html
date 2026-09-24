@@ -18,6 +18,9 @@
 {% if request.query_params.get('error') == 'shared_exists' %}
 <div class="error-flash">已有相同 feed 的共享渠道(#{},渠道名 {})。派生渠道不需要重复建源——领域归属由 AI 判定决定,只需维护领域关键词。</div>
 {% endif %}
+{% if request.query_params.get('error') == 'create' %}
+<div class="error-flash">{{ request.query_params.get('msg', '创建失败') }}</div>
+{% endif %}
 <table>
 <tr><th>名称</th><th>类型</th><th>归属</th><th>间隔</th><th>最近采集</th><th></th></tr>
 {% for p in pipes %}
@@ -38,18 +41,24 @@
 </tr>
 {% endfor %}
 </table>
-<div class="muted" style="margin-top:8px">派生渠道 = 采集范围跟随所属领域(查询条件由领域关键词实时生成);共享渠道 = 全量源,归属由 AI 判定。github 类型采集由另立项目负责,在此之前渠道保持停用。</div>
+<div class="muted" style="margin-top:8px">派生渠道 = 采集范围跟随所属领域(查询条件由领域关键词实时生成);共享渠道 = 全量源,归属由 AI 判定。github 派生渠道发现「近 90 天创建、星标达标」的领域相关仓库,github 共享渠道用自定义 query 检索。</div>
 
 <h2>新建渠道</h2>
 <div class="card">
   <form method="post" action="/admin/pipes/add" class="filters">
-    <select name="type" style="width:auto">
+    <select name="type" style="width:auto" onchange="document.querySelectorAll('.gh-only').forEach(e => e.hidden = this.value !== 'github')">
       <option value="rss">RSS</option>
       <option value="arxiv">arXiv</option>
       <option value="wechat">微信公众号</option>
+      <option value="github">GitHub</option>
     </select>
     <input type="text" name="name" placeholder="名称" style="flex:1">
-    <input type="text" name="config_value" placeholder="feed 地址 / arXiv 分类 / 公众号 mp_id" style="flex:2">
+    <input type="text" name="config_value" placeholder="feed 地址 / arXiv 分类 / 公众号 mp_id / GitHub query(共享时必填)" style="flex:2">
+    <span class="gh-only" hidden>
+      <input type="number" name="window_days" placeholder="窗口天" min="1" style="width:70px" title="只看近 N 天创建的仓库(默认 90)">
+      <input type="number" name="min_stars" placeholder="最低星" min="0" style="width:70px" title="星标下限(默认 30)">
+      <input type="number" name="per_page" placeholder="单次条数" min="1" max="100" style="width:80px" title="单次取回条数(默认 30)">
+    </span>
     <input type="number" name="interval" value="30" min="1" style="width:70px" title="采集间隔(分钟)">
     <select name="domain_id" style="width:auto">
       <option value="">共享渠道</option>
@@ -57,5 +66,6 @@
     </select>
     <button class="primary">添加</button>
   </form>
+  <div class="muted">GitHub 派生渠道留空 query 即可;窗口/星标/条数缺省为 90 天 / 30 星 / 30 条。</div>
 </div>
 {% endblock %}

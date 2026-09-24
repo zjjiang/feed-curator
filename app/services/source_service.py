@@ -18,8 +18,33 @@ def _now() -> int:
     return int(time.time())
 
 
+def _validate_github_config(config: dict, domain_id: int | None) -> None:
+    """github 管道配置校验:共享管道必须有 query;数值字段限界。
+
+    派生管道(query 缺省)的检索串由领域关键词实时生成,允许空 config。
+    """
+    if not domain_id and not str(config.get("query") or "").strip():
+        raise ValueError(
+            "github 共享管道需要提供 query;派生管道可省略,由领域关键词生成")
+    for key in ("window_days", "min_stars", "per_page"):
+        if key not in config:
+            continue
+        try:
+            val = int(config[key])
+        except (TypeError, ValueError):
+            raise ValueError(f"github 配置 {key} 必须是整数")
+        if key == "window_days" and val < 1:
+            raise ValueError("github 配置 window_days 必须 ≥ 1")
+        if key == "per_page" and not 1 <= val <= 100:
+            raise ValueError("github 配置 per_page 须在 1-100 之间")
+        if val < 0:
+            raise ValueError(f"github 配置 {key} 不能为负")
+
+
 def create_pipe(db: Session, pipe_type: str, name: str, config: dict,
                 interval_min: int, domain_id: int | None = None) -> Pipe:
+    if pipe_type == "github":
+        _validate_github_config(config, domain_id)
     now = _now()
     pipe = Pipe(type=pipe_type, name=name, config=json_dump(config),
                 domain_id=domain_id, fetch_interval_min=interval_min,

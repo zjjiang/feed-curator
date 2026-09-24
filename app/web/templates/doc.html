@@ -13,7 +13,7 @@
   <div class="muted">
     <a href="{{ doc.url }}" target="_blank" rel="noopener">{{ doc.url }} ↗</a>
     {% if word_count %} · 约 {{ word_count }} 字{% endif %}
-    {% if meta and doc.kind == 'repo' and meta.stars %} · ★{{ meta.stars }} {{ meta.language or '' }}{% endif %}
+    {% if meta and doc.kind == 'repo' and meta.stars %} · <span title="GitHub 星标(括号内为相对上次刷新的增量)">★{{ '{:,}'.format(meta.stars) }}{% if meta.stars_gained and meta.stars_gained > 0 %} (+{{ '{:,}'.format(meta.stars_gained) }}){% endif %}</span> {{ meta.language or '' }}{% endif %}
     {% if meta and doc.kind == 'paper' %} · arXiv {{ meta.arxiv_id or '' }}{% endif %}
   </div>
   <div style="margin-top: 10px;">

@@ -138,6 +138,28 @@ class TestRefreshRepo:
         assert after.stars == 4 and after.summary == before.summary
         assert after.created_at == before.created_at
 
+    def test_refresh_stores_star_delta(self, db_session):
+        doc_id = self._seed_repo(db_session)  # 初始 stars=10
+        refresh_repo(db_session, doc_id, stars=25,
+                     stars_prev=10, stars_gained=15)
+        repo = db_session.get(Repo, doc_id)
+        assert repo.stars == 25
+        assert repo.stars_prev == 10
+        assert repo.stars_gained == 15
+
+    def test_refresh_without_delta_params_keeps_null(self, db_session):
+        doc_id = self._seed_repo(db_session)
+        refresh_repo(db_session, doc_id, stars=25, pushed_at=9999)
+        repo = db_session.get(Repo, doc_id)
+        assert repo.stars_prev is None
+        assert repo.stars_gained is None
+
+    def test_refresh_negative_gain_recorded(self, db_session):
+        doc_id = self._seed_repo(db_session)
+        refresh_repo(db_session, doc_id, stars=8,
+                     stars_prev=10, stars_gained=-2)
+        assert db_session.get(Repo, doc_id).stars_gained == -2
+
 
 class TestCheckOrphans:
     def test_reports_orphan_count(self, db_session):
