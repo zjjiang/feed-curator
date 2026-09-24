@@ -23,8 +23,12 @@ class ArchiveError(Exception):
 
 
 _HEADERS = {
-    "User-Agent": "Mozilla/5.0 (compatible; FeedCurator/0.2; personal archive)",
-    "Accept": "text/html,application/xhtml+xml",
+    # 通用爬虫 UA 会被 Cloudflare 级 CDN 整站 403(openai.com 实测),用常规浏览器 UA
+    "User-Agent": ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                   "AppleWebKit/537.36 (KHTML, like Gecko) "
+                   "Chrome/131.0.0.0 Safari/537.36"),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
 }
 
 _STRIP_TAGS = ("script", "style", "noscript", "nav", "footer", "aside", "form")

@@ -21,14 +21,19 @@ RETRY_COOLDOWN_SECONDS = 3 * 86400
 
 
 def pending_article_ids(db: Session, limit: int | None = None) -> list[int]:
-    """正文低于阈值、且不在冷却期的文章 id,按 id 稳定排序。"""
+    """正文低于阈值、且不在冷却期的文章 id,随机排序。
+
+    不按 id 排:失败的文章没有冷却标记(回滚了 last_modified_at),按 id 正序
+    会让每批都撞上同一批 403 域名,后面的文章永远轮不到。随机化让失败者靠
+    概率重排,新文章总能进入当前批。
+    """
     q = (
         db.query(Article.id)
         .join(Doc, Doc.id == Article.id)
         .filter(Doc.kind == "article")
         .filter(func.coalesce(Article.word_count, 0) < FULLTEXT_MIN_WORDS)
         .filter(Doc.last_modified_at < int(time.time()) - RETRY_COOLDOWN_SECONDS)
-        .order_by(Article.id)
+        .order_by(func.random())
     )
     if limit:
         q = q.limit(limit)

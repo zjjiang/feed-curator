@@ -42,7 +42,7 @@ def _cleanup_zombie_runs() -> None:
     with engine.begin() as conn:
         conn.execute(
             text("UPDATE run_log SET status='failed', error='进程重启,任务中断', "
-                 "finished_at=:now WHERE kind='analyze' AND status='running'"),
+                 "finished_at=:now WHERE kind IN ('analyze','fulltext') AND status='running'"),
             {"now": int(time.time())},
         )
 
