@@ -12,9 +12,11 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.adapters import FetchedItem, get_adapter
+from app.adapters.arxiv import build_keyword_query
 from app.models import Domain, Pipe, RunLog
 from app.services.doc_fields import build_detail, detect_doc_kind, parse_github_owner_name
 from app.utils.html_clean import estimate_word_count
+from app.utils.paper_identity import canonical_paper_url
 from app.writer import UpsertResult, upsert_doc
 
 
@@ -23,14 +25,20 @@ def now_ts() -> int:
 
 
 def resolve_fetch_config(db: Session, pipe: Pipe) -> dict[str, Any]:
-    """管道生效配置。派生 github 管道把领域关键词列表注入 config,
-    最终检索串由适配器组装(ASCII 过滤/OR/热度限定符);关键词改后下次采集即生效。"""
+    """管道生效配置。派生管道把领域关键词实时注入 config:
+    github 注入关键词列表(检索串由适配器组装),arxiv 直接生成
+    `all:"..." OR ...` 检索串(全中文关键词 → 空 query,适配器空转);
+    关键词改后下次采集即生效。"""
     config = json.loads(pipe.config) if pipe.config else {}
-    if pipe.domain_id and pipe.type == "github":
-        domain = db.get(Domain, pipe.domain_id)
-        keywords = json.loads(domain.keywords) if domain and domain.keywords else []
-        if keywords:
-            config["keywords"] = keywords
+    if not (pipe.domain_id and pipe.type in ("github", "arxiv")):
+        return config
+    domain = db.get(Domain, pipe.domain_id)
+    keywords = json.loads(domain.keywords) if domain and domain.keywords else []
+    if pipe.type == "arxiv":
+        # 派生管道恒有 query 键:无 ASCII 关键词与全中文同样空转,不落回 category 火龙
+        config["query"] = build_keyword_query(keywords or [])
+    elif keywords:
+        config["keywords"] = keywords
     return config
 
 
@@ -83,6 +91,8 @@ def _ingest_item(db: Session, pipe: Pipe, fi: FetchedItem) -> UpsertResult | Non
     if not url.startswith(("http://", "https://")):
         raise ValueError(f"条目缺少可用 URL: {fi.title!r}")
     kind = detect_doc_kind(url)
+    # 论文身份规范化:文档 URL 用规范身份(跨源去重),字段解析仍用原始 URL
+    doc_url = canonical_paper_url(url) if kind == "paper" else url
     detail = build_detail(
         kind,
         url=url,
@@ -98,7 +108,7 @@ def _ingest_item(db: Session, pipe: Pipe, fi: FetchedItem) -> UpsertResult | Non
     return upsert_doc(
         db,
         kind=kind,
-        url=url,
+        url=doc_url,
         title=fi.title or "(无标题)",
         detail=detail,
         pipe_id=pipe.id,

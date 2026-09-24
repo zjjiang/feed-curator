@@ -55,15 +55,19 @@ def build_detail(
     meta = meta or {}
     if kind == "paper":
         arxiv_id, version = parse_arxiv_id(url)
+        all_authors = meta.get("all_authors") or []
+        categories = meta.get("categories") or []
         return {
             "abstract": description,
             "content_text": content_text,
-            "authors": json_dump(meta.get("all_authors") or []),
-            "categories": json_dump(meta.get("categories") or []),
+            # 空列表存 NULL 而非 "[]":补空回填按空值识别待补字段
+            "authors": json_dump(all_authors) if all_authors else None,
+            "categories": json_dump(categories) if categories else None,
             "pdf_url": meta.get("pdf_url"),
             "arxiv_id": arxiv_id,
             "version": version,
             "submitted_at": published_at,
+            "extra": json_dump(meta["extra"]) if meta.get("extra") else None,
         }
     if kind == "repo":
         owner, name = parse_github_owner_name(url)

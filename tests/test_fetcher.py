@@ -265,6 +265,83 @@ class TestGithubPipe:
         assert len(gh_disc) == 1
 
 
+class TestPaperIdentityMerge:
+    """论文身份规范化:多源多形态 arXiv 链接归并为单 doc、各留一条 discovery。"""
+
+    def _rss_pipe(self, db_session, name):
+        p = Pipe(type="rss", name=name, config="{}", created_at=NOW, updated_at=NOW)
+        db_session.add(p)
+        db_session.commit()
+        return p
+
+    def _fake_adapter(self, monkeypatch, items):
+        from app.adapters.base import SourceAdapter
+
+        class FakeAdapter(SourceAdapter):
+            type = "rss"
+
+            def fetch(self, config):
+                return items
+
+        monkeypatch.setattr("app.jobs.fetcher.get_adapter", lambda t: FakeAdapter())
+
+    def test_hf_entry_then_hn_pdf_merge_to_single_doc(self, db_session, monkeypatch):
+        # HF 策展层先到:用论文 id 构造 canonical abs,缺 categories
+        hf = self._rss_pipe(db_session, "HF")
+        self._fake_adapter(monkeypatch, [
+            FetchedItem(external_id="2606.02578", title="VLA 综述",
+                        url="https://arxiv.org/abs/2606.02578",
+                        description="摘要", meta={}),
+        ])
+        inserted1, err1 = fetch_source(db_session, hf, trigger="manual")
+        assert err1 is None and inserted1 == 1
+
+        # HN 风格后到:pdf 链接带版本号
+        hn = self._rss_pipe(db_session, "HN")
+        self._fake_adapter(monkeypatch, [
+            FetchedItem(external_id="https://arxiv.org/pdf/2606.02578v2",
+                        title="VLA 综述 [pdf]",
+                        url="https://arxiv.org/pdf/2606.02578v2",
+                        description=None, meta={}),
+        ])
+        inserted2, err2 = fetch_source(db_session, hn, trigger="manual")
+        assert err2 is None and inserted2 == 1
+
+        assert db_session.query(Doc).count() == 1
+        assert db_session.query(Paper).count() == 1
+        assert db_session.query(Discovery).count() == 2
+
+        doc = db_session.query(Doc).one()
+        assert doc.url == "https://arxiv.org/abs/2606.02578"
+        assert doc.url_key == doc.url
+        paper = db_session.query(Paper).one()
+        assert paper.arxiv_id == "2606.02578"
+        assert paper.version == "v2"  # version 解析自原始到达 URL
+        assert paper.abstract == "摘要"  # 非空不覆盖
+
+    def test_versioned_abs_does_not_duplicate_doc(self, db_session, monkeypatch):
+        pipe = self._rss_pipe(db_session, "RSS")
+        self._fake_adapter(monkeypatch, [
+            FetchedItem(external_id="a1", title="无版本先到",
+                        url="https://arxiv.org/abs/2606.02578", meta={}),
+        ])
+        fetch_source(db_session, pipe, trigger="manual")
+
+        pipe2 = self._rss_pipe(db_session, "arXiv-API")
+        self._fake_adapter(monkeypatch, [
+            FetchedItem(external_id="a2", title="带版本后到",
+                        url="https://arxiv.org/abs/2606.02578v1",
+                        meta={"categories": ["cs.AI"]}),
+        ])
+        inserted, err = fetch_source(db_session, pipe2, trigger="manual")
+        assert err is None and inserted == 1
+        assert db_session.query(Doc).count() == 1
+        assert db_session.query(Discovery).count() == 2
+        # 空字段被补全
+        paper = db_session.query(Paper).one()
+        assert paper.categories == '["cs.AI"]'
+
+
 class _FakeReadmeClient:
     """同一假客户端同时应付搜索与 README:full_name → readme 正文。"""
 

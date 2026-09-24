@@ -18,6 +18,13 @@ def test_arxiv_subdomain_is_not_paper():
     assert detect_kind("https://blog.arxiv.org/2026/06/notes/") == "article"
 
 
+def test_arxiv_mirrored_hosts_are_paper():
+    # 身份规范化的前置:www/export 主机的 abs/pdf/html 同样判为 paper
+    assert detect_kind("https://www.arxiv.org/abs/2606.02578v1") == "paper"
+    assert detect_kind("https://export.arxiv.org/pdf/2606.02578") == "paper"
+    assert detect_kind("https://export.arxiv.org/list/cs.AI/recent") == "article"
+
+
 def test_github_repo_root_is_repo():
     assert detect_kind("https://github.com/viggy28/streambed") == "repo"
 
