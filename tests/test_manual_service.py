@@ -214,3 +214,29 @@ class TestSaveUrlPaper:
         assert db_session.query(Doc).count() == 1
         doc = db_session.query(Doc).one()
         assert doc.url == "https://arxiv.org/abs/2606.02578"
+
+
+class TestSaveUrlRetryBackfill:
+    """同一链接再次提交:为空的字段重试补全并回填,已有的不重抓。"""
+
+    def test_repo_readme_backfilled_on_resubmit(self, db_session, github_factory):
+        github_factory(FakeGithubClient(failures={"acme/cool-repo"}))
+        manual_service.save_url(db_session, "https://github.com/acme/cool-repo")
+        assert db_session.query(Repo).one().readme_text is None
+
+        github_factory(FakeGithubClient({"acme/cool-repo": "# 补上了"}))
+        r2 = manual_service.save_url(db_session, "https://github.com/acme/cool-repo")
+        assert not r2["created"] and r2["error"] is None
+        db_session.expire_all()
+        assert db_session.query(Repo).one().readme_text == "# 补上了"
+
+    def test_paper_abstract_backfilled_on_resubmit(self, db_session, paper_fetch):
+        paper_fetch(error=RuntimeError("超时"))
+        manual_service.save_url(db_session, "https://arxiv.org/abs/2606.02578")
+        assert db_session.query(Paper).one().abstract is None
+
+        paper_fetch(item=_paper_item())
+        r2 = manual_service.save_url(db_session, "https://arxiv.org/abs/2606.02578")
+        assert not r2["created"] and r2["error"] is None
+        db_session.expire_all()
+        assert db_session.query(Paper).one().abstract == "摘要前 500 字"
