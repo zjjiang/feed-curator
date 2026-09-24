@@ -36,7 +36,11 @@
     <span class="tag kind-{{ d.kind }}">{{ {'paper':'论文','repo':'项目','article':'文章'}[d.kind] }}</span>
     {% if d.kind_tag %}<span class="tag">{{ '技术' if d.kind_tag == 'tech' else '商业' }}</span>{% endif %}
     {% for name in d.domains %}<span class="tag domain">{{ name }}</span>{% endfor %}
+    {% if d.language %}<span class="muted">{{ d.language }}</span>{% endif %}
     {% if d.stars %}<span class="stars">{{ '★' * d.stars }}{{ '☆' * (5 - d.stars) }}</span>{% endif %}
+    {% if d.kind == 'repo' and d.gh_stars %}
+    <span class="tag gh-stars" title="GitHub 星标(括号内为相对上次刷新的增量)">★ {{ '{:,}'.format(d.gh_stars) }}{% if d.gh_stars_gained and d.gh_stars_gained > 0 %} <strong>(+{{ '{:,}'.format(d.gh_stars_gained) }})</strong>{% endif %}</span>
+    {% endif %}
     <span class="muted" style="float:right">{{ d.time_fmt }}</span>
   </div>
   <div style="margin: 4px 0;">

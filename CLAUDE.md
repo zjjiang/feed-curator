@@ -32,7 +32,7 @@ uv run pytest --cov=app                    # coverage (threshold: 80%)
 Native run (the current deployment mode):
 
 ```bash
-# .env (gitignored) provides DATABASE_URL and DEEPSEEK_API_KEY
+# .env (gitignored) provides DATABASE_URL, DEEPSEEK_API_KEY and (optional) GITHUB_TOKEN
 set -a && source .env && set +a
 uv run --no-sync uvicorn app.main:app --port 9003 --host 127.0.0.1
 curl http://localhost:9003/health          # → {"status":"ok"}
@@ -67,7 +67,7 @@ MySQL via SQLAlchemy + pymysql, 13 tables defined in `app/models/`:
   `status='ok'` row per doc), `membership` (PK (doc_id, domain_id),
   `assigned_by` ai|manual).
 - **Ops**: `reading` (1:1 with doc, lazy-created), `document_link` + `suggestion`
-  (reserved for future agents), `run_log` (kind `fetch|analyze|fulltext|agent` —
+  (reserved for future agents), `run_log` (kind `fetch|analyze|fulltext|agent|refresh|readme` —
   the old Job+SyncLog merge).
 
 Dedup key is the **normalized URL** (`app/utils/url_key.py`: lowercase host,
@@ -93,25 +93,28 @@ app/
 ├── db.py              # engine/session; init_db = create_all + zombie-run cleanup + orphan report
 ├── writer.py          # THE single write entry: upsert_doc() + refresh_repo() + check_orphans()
 ├── mcp_server.py      # MCP tools at /mcp: add_rss, list_pipes, save_url, domains, recommend, job_status
-├── adapters/          # rss / arxiv / wechat — return FetchedItem, never touch the DB
+├── adapters/          # rss / arxiv / wechat / github — return FetchedItem, never touch the DB
 ├── ai/
 │   ├── client.py      # LLMClient.analyze() → {summary, keypoints, domains, article_kind, stars}; output defense lives here
 │   └── analyzer.py    # orchestration: select_doc_ids, analyze_doc, materialize membership + kind_tag
 ├── jobs/
-│   ├── fetcher.py     # fetch_source (pipe → upsert_doc, run_log), resolve_fetch_config (derived pipes)
+│   ├── fetcher.py     # fetch_source (pipe → upsert_doc, run_log), resolve_fetch_config (derived pipes), github README enrichment hook
 │   └── runner.py      # analyze job executor: thread pool (5 workers), single-job lock, cancel event
 ├── services/
 │   ├── fulltext.py            # fetch+parse article pages; SSRF protection (rebuilt from lost archive_service)
 │   ├── fulltext_backfill.py   # rate-limited batch backfill of short articles (run_log kind='fulltext')
+│   ├── github_client.py       # GitHub REST client: search_repositories / get_repo / get_readme; GITHUB_TOKEN optional
+│   ├── repo_enrich.py         # README completion for new repos (inline in github fetch) + /ops backfill (run_log kind='readme')
+│   ├── repo_refresh.py        # daily star refresh + delta computation via refresh_repo (run_log kind='refresh')
 │   ├── manual_service.py      # "save URL" entry (manual pipe type)
 │   ├── doc_fields.py          # FetchedItem → (kind, detail) field routing, shared by all writers
-│   ├── source_service.py      # create_pipe helpers
+│   ├── source_service.py      # create_pipe helpers + github config validation
 │   └── wewe_client.py         # we-mp-rss HTTP client (login/search/subscribe)
 ├── utils/             # url_key, doc_kind, json_str, html_clean
 └── web/
     ├── pages.py       # server-rendered routes: reader (/ feed, /docs/{id}) + admin (/admin, /admin/pipes, /admin/domains; legacy paths redirect)
     └── templates/     # layout, index, doc, domains, pipes, ops
-scripts/migration/     # one-shot migration + verify + fulltext backfill runner (SQLite source is deleted; kept as record)
+scripts/migration/     # one-shot migration + verify + fulltext backfill runner (SQLite source is deleted; kept as record); 20260924_repo_star_delta.py = idempotent repo.stars_prev/stars_gained ALTER
 tests/                 # pytest suite; conftest provides per-test in-memory SQLite (StaticPool)
 ```
 
@@ -123,8 +126,20 @@ Pipeline: **pipe → adapter → fetcher → upsert_doc → (fulltext backfill) 
   interval elapsed get `fetch_source`. Each item is kind-detected by URL,
   fields routed by `doc_fields.build_detail`, and written through
   `upsert_doc`. Failures are isolated per pipe (and per item) and land in
-  `pipe.last_error` + `run_log`. `github` pipes stay disabled — repo collection
-  is a separate future project (contract: `upsert_doc(kind, ...)`).
+  `pipe.last_error` + `run_log`.
+- **GitHub pipes** (`app/adapters/github.py` + `github_client.py`): derived
+  github pipes search the GitHub API for hot repos of their domain —
+  `created:>=N-days stars:>=M`, keywords OR-joined (ASCII-only, multi-word
+  quoted, ≤256 chars); shared github pipes use `config.query` verbatim.
+  Newly created repos get their README fetched inline in the same cycle
+  (analysis judges each doc only once, so README must beat the analyzer);
+  failures leave `readme_text` NULL for the `/ops` backfill button.
+  `run_refresh` (daily, due-checked inside the fetch tick) refreshes stars
+  via `refresh_repo` and computes `stars_prev`/`stars_gained` deltas;
+  no token → search 10/min still works, README/refresh capped at small
+  batches (Core API 60/hr). `GITHUB_TOKEN` in `.env` lifts limits
+  (30 search/min, 5000 core/hr). `github.com/trending` scraping is NOT
+  viable from this network — only `api.github.com` is reachable.
 - **Analyze cycle** (every 300s): if an API key is configured, docs are pending,
   and no analyze run is active → start one. `runner.py` keeps the production
   concurrency model: in-memory lock + DB status double-guard, thread pool with

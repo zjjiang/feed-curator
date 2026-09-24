@@ -53,6 +53,8 @@ class Repo(Base):
     description = Column(Text)
     readme_text = Column(LongText)
     stars = Column(Integer, index=True)
+    stars_prev = Column(Integer)     # 上次刷新时的星标;增量计算的基准
+    stars_gained = Column(Integer)   # 相对上次刷新的星标增量,可负;首次刷新为 NULL
     forks = Column(Integer)
     open_issues = Column(Integer)
     language = Column(String(64), index=True)

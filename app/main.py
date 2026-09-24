@@ -63,6 +63,18 @@ def _run_fetch_cycle():
                 print(f"[fetch] {pipe.name} 异常: {type(e).__name__}: {e}")
     finally:
         db.close()
+    _maybe_start_repo_refresh()
+
+
+def _maybe_start_repo_refresh():
+    """采集周期顺带检查星标刷新是否到期(每日一轮,到期则后台线程执行)。"""
+    try:
+        from app.services.repo_refresh import maybe_start_refresh
+
+        if maybe_start_refresh(trigger="auto"):
+            print("[repo-refresh] 已启动每日星标刷新")
+    except Exception as e:  # noqa: BLE001 — 刷新失败不影响采集主流程
+        print(f"[repo-refresh] 启动失败: {type(e).__name__}: {e}")
 
 
 def _run_analyze_cycle():
@@ -115,8 +127,11 @@ class PipeCreate(BaseModel):
 def create_pipe_api(body: PipeCreate, db: Session = Depends(get_session)):
     from app.services.source_service import create_pipe
 
-    pipe = create_pipe(db, body.type, body.name, body.config,
-                       body.fetch_interval_min, body.domain_id)
+    try:
+        pipe = create_pipe(db, body.type, body.name, body.config,
+                           body.fetch_interval_min, body.domain_id)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     return {"id": pipe.id, "name": pipe.name, "type": pipe.type}
 
 

@@ -161,11 +161,15 @@ def _decorate_docs(db: Session, docs: list[Doc]) -> list[dict]:
         a.id: a.kind_tag
         for a in db.query(Article).filter(Article.id.in_(doc_ids)).all()
     }
+    repos = {
+        r.id: r for r in db.query(Repo).filter(Repo.id.in_(doc_ids)).all()
+    }
 
     rows = []
     for d in docs:
         a = analyses.get(d.id)
         r = readings.get(d.id)
+        repo = repos.get(d.id) if d.kind == "repo" else None
         rows.append({
             "id": d.id, "kind": d.kind, "title": d.title, "url": d.url,
             "time_fmt": _fmt_time(d.sort_time),
@@ -175,6 +179,9 @@ def _decorate_docs(db: Session, docs: list[Doc]) -> list[dict]:
             "summary": a.summary if a else None,
             "is_read": bool(r.is_read) if r else False,
             "is_favorite": bool(r.is_favorite) if r else False,
+            "gh_stars": repo.stars if repo else None,
+            "gh_stars_gained": repo.stars_gained if repo else None,
+            "language": repo.language if repo else None,
         })
     return rows
 
@@ -345,7 +352,7 @@ def pipes_page(request: Request, db: Session = Depends(get_session)):
             "fetch_interval_min": p.fetch_interval_min,
             "last_fetched_fmt": _fmt_time(p.last_fetched_at),
             "last_error": p.last_error,
-            "type_supported": p.type in ("rss", "arxiv", "wechat", "manual"),
+            "type_supported": p.type in ("rss", "arxiv", "wechat", "github", "manual"),
         })
     return templates.TemplateResponse(request, "pipes.html", {
         "pipes": pipes,
@@ -369,6 +376,14 @@ async def add_pipe_page(request: Request, db: Session = Depends(get_session)):
         config = {"feed_url": value}
     elif pipe_type == "arxiv":
         config = {"category": value or "cs.AI", "max_results": 30}
+    elif pipe_type == "github":
+        config = {}
+        if value:
+            config["query"] = value
+        for key in ("window_days", "min_stars", "per_page"):
+            raw = (form.get(key) or "").strip()
+            if raw:
+                config[key] = int(raw)
     else:
         config = {"mp_id": value, "wewe_base_url": "http://localhost:9001"}
 
@@ -386,7 +401,12 @@ async def add_pipe_page(request: Request, db: Session = Depends(get_session)):
             f"/admin/pipes?error=shared_exists&existing={existing_feed.id}", status_code=303)
 
     if name:
-        create_pipe(db, pipe_type, name, config, interval, domain_id)
+        try:
+            create_pipe(db, pipe_type, name, config, interval, domain_id)
+        except ValueError as e:
+            from urllib.parse import quote
+            return RedirectResponse(
+                f"/admin/pipes?error=create&msg={quote(str(e))}", status_code=303)
     return RedirectResponse("/admin/pipes", status_code=303)
 
 
@@ -422,6 +442,51 @@ async def save_url_page(request: Request, db: Session = Depends(get_session)):
         return RedirectResponse(f"/admin/pipes?error=save_url&msg={quote(str(e))}",
                                 status_code=303)
     return RedirectResponse("/admin/pipes?saved=1", status_code=303)
+
+
+# ============ 管理后台:仓库维护 ============
+
+
+@router.post("/admin/repos/refresh")
+def trigger_repo_refresh():
+    """手动触发一轮星标刷新(maybe_start_refresh 自带单飞与到期检查)。"""
+    from app.services.repo_refresh import maybe_start_refresh
+
+    started = maybe_start_refresh(trigger="manual")
+    msg = "refresh_started" if started else "refresh_busy"
+    return RedirectResponse(f"/admin?msg={msg}", status_code=303)
+
+
+_readme_running = None    # README 补抓线程句柄(进程内单例,与 run_log 双保险)
+
+
+@router.post("/admin/repos/readme")
+def trigger_readme_backfill(db: Session = Depends(get_session)):
+    """手动补抓一批缺失的 README(限速在服务内,1 秒/个)。"""
+    global _readme_running
+    import threading
+
+    running = (
+        db.query(RunLog)
+        .filter(RunLog.kind == "readme", RunLog.status == "running")
+        .first()
+    )
+    if running or (_readme_running is not None and _readme_running.is_alive()):
+        return RedirectResponse("/admin?msg=readme_busy", status_code=303)
+
+    from app.services.repo_enrich import run_readme_backfill
+
+    done = threading.Event()
+
+    def worker():
+        try:
+            run_readme_backfill(sleep_seconds=1.0)
+        finally:
+            done.set()
+
+    _readme_running = threading.Thread(target=worker, daemon=True)
+    _readme_running.start()
+    return RedirectResponse("/admin?msg=readme_started", status_code=303)
 
 
 # ============ 管理后台 ============
@@ -481,7 +546,7 @@ def ops_page(request: Request, db: Session = Depends(get_session)):
 def _run_counts(r: RunLog) -> str:
     if r.kind == "fetch":
         return f"+{r.inserted}"
-    if r.kind == "fulltext":
+    if r.kind in ("fulltext", "readme", "refresh"):
         return f"{r.processed}/{r.total}"
     return f"{r.processed}/{r.total} (成{r.succeeded}/败{r.failed})"
 

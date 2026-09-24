@@ -1,3 +1,4 @@
+import json
 import time
 
 import pytest
@@ -201,3 +202,120 @@ class TestApi:
         while not started.get("called") and _t.time() < deadline:
             _t.sleep(0.05)
         assert started["called"]
+
+
+class TestRepoMaintenanceRoutes:
+    def test_refresh_route_manual_trigger(self, client, monkeypatch):
+        calls = {}
+
+        def fake_maybe(trigger="auto"):
+            calls["trigger"] = trigger
+            return True
+
+        monkeypatch.setattr("app.services.repo_refresh.maybe_start_refresh",
+                            fake_maybe)
+        resp = client.post("/admin/repos/refresh", follow_redirects=False)
+        assert resp.status_code == 303
+        assert "msg=refresh_started" in resp.headers["location"]
+        assert calls["trigger"] == "manual"
+
+    def test_refresh_route_busy(self, client, monkeypatch):
+        monkeypatch.setattr("app.services.repo_refresh.maybe_start_refresh",
+                            lambda trigger="auto": False)
+        resp = client.post("/admin/repos/refresh", follow_redirects=False)
+        assert "msg=refresh_busy" in resp.headers["location"]
+
+    def test_readme_route_busy_when_running(self, client, db_session):
+        db_session.add(RunLog(kind="readme", status="running", total=5,
+                              created_at=NOW))
+        db_session.commit()
+        resp = client.post("/admin/repos/readme", follow_redirects=False)
+        assert "msg=readme_busy" in resp.headers["location"]
+
+    def test_readme_route_starts_thread(self, client, db_session, monkeypatch):
+        started = {}
+
+        def fake_backfill(*a, **kw):
+            started["called"] = True
+
+        monkeypatch.setattr("app.services.repo_enrich.run_readme_backfill",
+                            fake_backfill)
+        resp = client.post("/admin/repos/readme", follow_redirects=False)
+        assert resp.status_code == 303
+        assert "msg=readme_started" in resp.headers["location"]
+        deadline = time.time() + 2
+        while not started.get("called") and time.time() < deadline:
+            time.sleep(0.05)
+        assert started["called"]
+
+
+class TestRepoStarDisplay:
+    def _repo_with_stars(self, db, url, stars, gained, language="Python"):
+        d = _doc(db, kind="repo", url=url)
+        from app.models import Repo
+        repo = db.get(Repo, d.id)
+        repo.stars = stars
+        repo.stars_gained = gained
+        repo.language = language
+        db.commit()
+        return d
+
+    def test_index_card_shows_github_stars_and_gain(self, client, db_session):
+        self._repo_with_stars(db_session, "https://example.com/r1", 12345, 120)
+        html = client.get("/").text
+        assert "12,345" in html
+        assert "(+120)" in html
+        assert "Python" in html
+
+    def test_index_card_hides_nonpositive_gain(self, client, db_session):
+        self._repo_with_stars(db_session, "https://example.com/r2", 100, -2)
+        html = client.get("/").text
+        assert "100" in html
+        assert "(+" not in html
+
+    def test_index_card_empty_when_no_stars(self, client, db_session):
+        _doc(db_session, kind="repo", url="https://example.com/r3")
+        html = client.get("/").text
+        assert "GitHub 星标" not in html
+
+    def test_doc_page_shows_gain(self, client, db_session):
+        d = self._repo_with_stars(db_session, "https://example.com/r4", 2000, 35)
+        html = client.get(f"/docs/{d.id}").text
+        assert "2,000" in html
+        assert "(+35)" in html
+
+
+class TestGithubPipeForm:
+    def test_add_github_derived_pipe_via_form(self, client, db_session):
+        d = Domain(name="具身智能", created_at=NOW, updated_at=NOW)
+        db_session.add(d)
+        db_session.commit()
+        client.post("/admin/pipes/add", data={
+            "type": "github", "name": "具身智能GH",
+            "config_value": "", "interval": "360", "domain_id": str(d.id),
+            "window_days": "7", "min_stars": "50", "per_page": "30",
+        }, follow_redirects=False)
+        pipe = db_session.query(Pipe).filter(Pipe.type == "github").one()
+        assert pipe.domain_id == d.id
+        cfg = json.loads(pipe.config)
+        assert cfg["window_days"] == 7 and cfg["min_stars"] == 50
+
+    def test_add_github_shared_without_query_rejected(self, client, db_session):
+        resp = client.post("/admin/pipes/add", data={
+            "type": "github", "name": "GH共享", "config_value": "",
+        }, follow_redirects=False)
+        assert "error=create" in resp.headers["location"]
+        assert db_session.query(Pipe).filter(Pipe.type == "github").count() == 0
+
+    def test_pipes_page_lists_github_as_supported(self, client, db_session):
+        db_session.add(Pipe(type="github", name="GH", config="{}",
+                            created_at=NOW, updated_at=NOW))
+        db_session.commit()
+        html = client.get("/admin/pipes").text
+        assert "暂不支持" not in html
+
+    def test_api_rejects_invalid_github_config(self, client, db_session):
+        resp = client.post("/api/pipes", json={
+            "type": "github", "name": "x", "config": {},
+            "fetch_interval_min": 30, "domain_id": None})
+        assert resp.status_code == 400
