@@ -18,6 +18,7 @@ TDD:每个实现任务先写失败测试再实现。测试沿用 tests/ 既有�
 
 ## 3. 集成验证与收尾
 
-- [ ] 3.1 微信文章真实链接验证:取一条真实 mp.weixin.qq.com 链接走 `fulltext.fetch_and_parse`,记录成功率结论(写入任务备注或 run_log;结论若为不可用,留待后续 change,不阻塞本 change)
-- [ ] 3.2 全量回归:`uv run pytest` 全绿,`uv run pytest --cov=app` 覆盖率 ≥ 80%
+- [x] 3.1 微信文章真实链接验证:取一条真实 mp.weixin.qq.com 链接走 `fulltext.fetch_and_parse`,记录成功率结论(写入任务备注或 run_log;结论若为不可用,留待后续 change,不阻塞本 change)
+  - 结论(2026-09-24):直连抓取可用,无需反爬对策。实测 `mp.weixin.qq.com/s/UTnspUVWe-RaLEypZGO6KA` → 标题/作者/2263 字正文完整解析
+- [x] 3.2 全量回归:`uv run pytest` 全绿,`uv run pytest --cov=app` 覆盖率 ≥ 80%
 - [ ] 3.3 真实环境端到端:加载 .env 起服务,经 /mcp 调 save_url 存一个 GitHub 仓库与一个 arXiv 链接,确认实体字段已填充、判定基于完整内容;同一链接重复提交不重复抓取
