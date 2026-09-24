@@ -35,6 +35,6 @@
 
 ## 7. 收尾
 
-- [ ] 7.1 CLAUDE.md 更新：github 管道启用说明、`GITHUB_TOKEN` 配置说明、run_log kind 列表补 `refresh`
-- [ ] 7.2 全量 `uv run pytest` 通过且 `uv run pytest --cov=app` 覆盖率 ≥ 80%
-- [ ] 7.3 真机冒烟：带真实 env 启动服务，admin 创建「具身智能」派生 github 管道并手动触发采集，确认 repo 入库、README 填充、AI 判定产出领域归属、feed 卡片显示星数
+- [x] 7.1 CLAUDE.md 更新：github 管道启用说明、`GITHUB_TOKEN` 配置说明、run_log kind 列表补 `refresh`
+- [x] 7.2 全量 `uv run pytest` 通过且 `uv run pytest --cov=app` 覆盖率 ≥ 80%
+- [ ] 7.3 真机冒烟：采集/README/星标展示/迷你刷新已验证(30 入库、29 README、卡片 ★ 渲染、3/3 刷新)；仅剩 AI 判定产出领域归属一环——待 .env 补 DEEPSEEK_API_KEY(现为空串)与 GITHUB_TOKEN 后触发 /api/analyze/run 复验
