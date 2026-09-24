@@ -1,6 +1,9 @@
+import json
+
 import pytest
 
-from app.models import Paper, Repo
+from app.adapters.base import FetchedItem
+from app.models import Doc, Paper, Repo
 from app.services import fulltext, manual_service
 from app.services.fulltext import ArchiveError
 
@@ -46,7 +49,9 @@ class TestSaveUrlNoNetwork:
         repo = db_session.query(Repo).one()
         assert (repo.owner, repo.name) == ("acme", "cool-repo")
 
-    def test_arxiv_url_becomes_paper(self, db_session):
+    def test_arxiv_url_becomes_paper(self, db_session, monkeypatch):
+        monkeypatch.setattr(manual_service, "fetch_paper_by_id",
+                            lambda aid, transport=None: None)
         r = manual_service.save_url(db_session, "https://arxiv.org/abs/2606.02578v1")
         assert r["kind"] == "paper"
         paper = db_session.query(Paper).one()
@@ -127,3 +132,85 @@ class TestSaveUrlArticle:
         doc = db_session.query(Doc).one()
         assert doc.title == "https://example.com/post"
         assert db_session.query(Article).count() == 1
+
+
+def _paper_item() -> FetchedItem:
+    return FetchedItem(
+        external_id="http://arxiv.org/abs/2606.02578v1",
+        title="VLA Survey",
+        url="https://arxiv.org/abs/2606.02578v1",
+        author="张三, Li Si",
+        description="摘要前 500 字",
+        content_text="完整摘要",
+        content_html=None,
+        cover_image_url=None,
+        published_at=1780000000,
+        meta={"categories": ["cs.RO", "cs.AI"],
+              "pdf_url": "http://arxiv.org/pdf/2606.02578v1",
+              "all_authors": ["张三", "Li Si"]},
+    )
+
+
+@pytest.fixture()
+def paper_fetch(monkeypatch):
+    """替换 manual_service 的单篇抓取;calls 记录入参,可断言未发起抓取。"""
+    holder = {"calls": []}
+
+    def install(item=None, error=None):
+        holder["calls"].clear()
+
+        def fake(arxiv_id, transport=None):
+            holder["calls"].append(arxiv_id)
+            if error is not None:
+                raise error
+            return item
+        monkeypatch.setattr(manual_service, "fetch_paper_by_id", fake)
+        return holder
+
+    return install
+
+
+class TestSaveUrlPaper:
+    """手工存入论文:入库前经 arXiv API 补全实体字段,并按规范身份归并。"""
+
+    def test_new_paper_fetches_abstract(self, db_session, paper_fetch):
+        paper_fetch(item=_paper_item())
+        r = manual_service.save_url(db_session, "https://arxiv.org/abs/2606.02578v1")
+        assert r["kind"] == "paper" and r["error"] is None
+        paper = db_session.query(Paper).one()
+        assert paper.abstract == "摘要前 500 字"
+        assert paper.content_text == "完整摘要"
+        assert paper.arxiv_id == "2606.02578" and paper.version == "v1"
+        assert json.loads(paper.authors) == ["张三", "Li Si"]
+        assert json.loads(paper.categories) == ["cs.RO", "cs.AI"]
+        assert paper.pdf_url == "http://arxiv.org/pdf/2606.02578v1"
+        assert paper.submitted_at == 1780000000
+
+    def test_paper_fetch_failure_still_saves(self, db_session, paper_fetch):
+        paper_fetch(error=RuntimeError("网络炸了"))
+        r = manual_service.save_url(db_session, "https://arxiv.org/abs/2606.02578")
+        assert r["created"] and r["error"]
+        assert db_session.query(Paper).one().abstract is None
+
+    def test_paper_api_empty_still_saves(self, db_session, paper_fetch):
+        paper_fetch(item=None)
+        r = manual_service.save_url(db_session, "https://arxiv.org/abs/2606.02578")
+        assert r["created"] and r["error"]
+        assert db_session.query(Paper).one().abstract is None
+
+    def test_abstract_present_not_refetched(self, db_session, paper_fetch):
+        paper_fetch(item=_paper_item())
+        manual_service.save_url(db_session, "https://arxiv.org/abs/2606.02578v1")
+        holder = paper_fetch(item=_paper_item())
+        r2 = manual_service.save_url(db_session, "https://arxiv.org/abs/2606.02578v2")
+        assert holder["calls"] == []
+        assert not r2["created"]
+
+    def test_pdf_url_canonicalizes_and_merges(self, db_session, paper_fetch):
+        paper_fetch(item=_paper_item())
+        manual_service.save_url(db_session, "https://arxiv.org/abs/2606.02578v1")
+        r2 = manual_service.save_url(db_session, "https://arxiv.org/pdf/2606.02578v2")
+        assert not r2["created"]
+        assert db_session.query(Doc).count() == 1
+        doc = db_session.query(Doc).one()
+        assert doc.url == "https://arxiv.org/abs/2606.02578"

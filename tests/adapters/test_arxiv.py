@@ -4,7 +4,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
-from app.adapters.arxiv import ArxivAdapter, build_keyword_query
+from app.adapters.arxiv import ArxivAdapter, build_keyword_query, fetch_paper_by_id
 
 ATOM_XML = """<?xml version="1.0" encoding="UTF-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
@@ -106,3 +106,26 @@ class TestBuildKeywordQuery:
 
     def test_all_non_ascii_returns_empty(self):
         assert build_keyword_query(["具身智能", "机器人"]) == ""
+
+
+class TestFetchPaperById:
+    def test_requests_id_list_and_parses_entry(self, monkeypatch):
+        captured = _capture_request(monkeypatch)
+
+        item = fetch_paper_by_id("2606.02578")
+
+        assert len(captured) == 1
+        params = _params(captured[0])
+        assert params["id_list"] == ["2606.02578"]
+        assert params["max_results"] == ["1"]
+        assert "search_query" not in params
+        assert item is not None
+        assert "VLA" in item.content_text
+        assert item.meta["all_authors"] == ["张三", "Li Si"]
+        assert item.meta["pdf_url"] == "http://arxiv.org/pdf/2606.02578v1"
+
+    def test_empty_feed_returns_none(self, monkeypatch):
+        empty = '<?xml version="1.0" encoding="UTF-8"?><feed xmlns="http://www.w3.org/2005/Atom"/>'
+        _capture_request(monkeypatch, body=empty)
+
+        assert fetch_paper_by_id("9999.99999") is None

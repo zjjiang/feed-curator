@@ -6,11 +6,14 @@ URL 提取结构化字段(字段留空待补全,见 design 决策 9)。
 
 from sqlalchemy.orm import Session
 
-from app.models import Doc, Pipe, Repo
+from app.adapters.arxiv import fetch_paper_by_id
+from app.models import Doc, Paper, Pipe, Repo
 from app.services import fulltext
-from app.services.doc_fields import build_detail, detect_doc_kind, parse_github_owner_name
+from app.services.doc_fields import (build_detail, detect_doc_kind, parse_arxiv_id,
+                                     parse_github_owner_name)
 from app.services.fulltext import ArchiveError
 from app.utils.html_clean import estimate_word_count
+from app.utils.paper_identity import canonical_paper_url
 from app.utils.url_key import normalize_url
 from app.writer import upsert_doc
 
@@ -67,6 +70,37 @@ def _fetch_repo_readme(url: str) -> tuple[str | None, str | None]:
     return readme, None
 
 
+def _paper_abstract_pending(db: Session, doc_url: str) -> bool:
+    """论文是否需要抓摘要:文档不存在(首次入库)或 abstract 为空。"""
+    doc = db.query(Doc).filter(Doc.url_key == normalize_url(doc_url)).first()
+    if doc is None:
+        return True
+    paper = db.get(Paper, doc.id)
+    return paper is None or not paper.abstract
+
+
+def _paper_detail(db: Session, doc_url: str, url: str) -> tuple[dict, str | None]:
+    """论文实体 detail:已有 abstract 不重复抓;否则按 id 经 arXiv API 补全。
+
+    返回 (detail, error);任何抓取失败都降级为仅建档(字段留空待重试)。
+    """
+    if not _paper_abstract_pending(db, doc_url):
+        return build_detail("paper", url=url), None
+    arxiv_id, _ = parse_arxiv_id(url)
+    if not arxiv_id:
+        return build_detail("paper", url=url), None
+    try:
+        item = fetch_paper_by_id(arxiv_id)
+    except Exception as e:  # noqa: BLE001 — 网络边界,失败降级
+        return build_detail("paper", url=url), f"摘要抓取失败:{type(e).__name__}: {e}"
+    if item is None:
+        return build_detail("paper", url=url), "arXiv API 未返回该论文"
+    detail = build_detail("paper", url=url, description=item.description,
+                          content_text=item.content_text,
+                          published_at=item.published_at, meta=item.meta)
+    return detail, None
+
+
 def save_url(db: Session, url: str, note: str | None = None) -> dict:
     """存入一个 URL。返回 {doc_id, kind, created, error, title}。
 
@@ -75,6 +109,8 @@ def save_url(db: Session, url: str, note: str | None = None) -> dict:
     pipe = get_manual_pipe(db)
     normalized = fulltext.normalize_input_url(url)
     kind = detect_doc_kind(normalized)
+    # 论文入库前归一为规范身份 URL(剥版本/归一 host),与管道侧同规则
+    doc_url = canonical_paper_url(normalized) if kind == "paper" else normalized
 
     title = normalized
     detail: dict = {}
@@ -99,18 +135,20 @@ def save_url(db: Session, url: str, note: str | None = None) -> dict:
             fetch_error = str(exc)
             detail = build_detail("article", url=normalized, meta={"archive_error": fetch_error})
     elif kind == "repo":
-        if _repo_readme_pending(db, normalized):
+        if _repo_readme_pending(db, doc_url):
             readme, fetch_error = _fetch_repo_readme(normalized)
         else:
             readme = None  # 已持有 README,不重复抓
         detail = build_detail("repo", url=normalized, content_text=readme)
+    elif kind == "paper":
+        detail, fetch_error = _paper_detail(db, doc_url, normalized)
     else:
         detail = build_detail(kind, url=normalized)
 
     result = upsert_doc(
         db,
         kind=kind,
-        url=normalized,
+        url=doc_url,
         title=title,
         detail=detail,
         pipe_id=pipe.id,
