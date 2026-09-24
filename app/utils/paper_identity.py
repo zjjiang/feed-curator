@@ -27,3 +27,16 @@ def canonical_paper_url(url: str) -> str:
     if m is None:
         return url
     return f"https://arxiv.org/abs/{m.group(1)}"
+
+
+def is_arxiv_id(value: str) -> bool:
+    """裸 id(可带版本号)是否为合法 arXiv 论文 id 形态。"""
+    return _ARXIV_ID.fullmatch(value or "") is not None
+
+
+def canonical_url_from_id(value: str) -> str | None:
+    """合法 arXiv id → 规范身份 URL(剥版本);非法返回 None。"""
+    m = _ARXIV_ID.fullmatch(value or "")
+    if m is None:
+        return None
+    return f"https://arxiv.org/abs/{m.group(1)}"

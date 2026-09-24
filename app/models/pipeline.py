@@ -23,7 +23,7 @@ class Pipe(Base):
     __tablename__ = "pipe"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    type = Column(String(32), nullable=False)   # rss|arxiv|wechat|github|manual
+    type = Column(String(32), nullable=False)   # rss|arxiv|wechat|github|hf_papers|manual
     name = Column(String(255), nullable=False)
     config = Column(Text, nullable=False)       # JSON 字符串
     domain_id = Column(Integer, ForeignKey("domain.id"))

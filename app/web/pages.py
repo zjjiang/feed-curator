@@ -352,7 +352,8 @@ def pipes_page(request: Request, db: Session = Depends(get_session)):
             "fetch_interval_min": p.fetch_interval_min,
             "last_fetched_fmt": _fmt_time(p.last_fetched_at),
             "last_error": p.last_error,
-            "type_supported": p.type in ("rss", "arxiv", "wechat", "github", "manual"),
+            "type_supported": p.type in ("rss", "arxiv", "wechat", "github",
+                                         "hf_papers", "manual"),
         })
     return templates.TemplateResponse(request, "pipes.html", {
         "pipes": pipes,
@@ -384,6 +385,10 @@ async def add_pipe_page(request: Request, db: Session = Depends(get_session)):
             raw = (form.get(key) or "").strip()
             if raw:
                 config[key] = int(raw)
+    elif pipe_type == "hf_papers":
+        config = {}
+        if value:
+            config["base_url"] = value
     else:
         config = {"mp_id": value, "wewe_base_url": "http://localhost:9001"}
 

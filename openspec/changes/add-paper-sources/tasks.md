@@ -27,11 +27,11 @@
 ## 4. D — hf_papers 适配器 + extra 列
 
 - [x] 4.1 先写 schema 测试:`tests/models/` 增补 `paper.extra`(LongText,双方言编译);确认 test_schema 通过后改 `app/models/doc.py` 加列。RED→GREEN
-- [ ] 4.2 写幂等迁移脚本 `scripts/migration/add_paper_extra.py`(information_schema 检查列存在与否,缺则 ALTER)。验证:对本地 MySQL 跑两遍,第二遍 no-op
-- [ ] 4.3 先写测试:`tests/adapters/test_hf_papers.py` 用真实 API 形状的离线 fixture(脱敏自 2026-09-23 实测响应)——标准条目映射(id→external_id、canonical abs URL、summary→abstract、authors[].name→all_authors、pdf_url 构造、upvotes/githubRepo/githubStars→meta.extra、publishedAt→published_at)、缺 categories 不算失败、条目 id 形态非法记条目级错误、三日期窗口调用、镜像结构异常触发回退(代理直连官方域)、全出口失败抛错给 fetcher 隔离层。RED
-- [ ] 4.4 实现 `app/adapters/hf_papers.py`(默认出口 hf-mirror,`config.base_url` 可覆盖;日期窗口取 UTC 今天/昨天/前天;走出网收口,国内直连优先)。RED→GREEN
-- [ ] 4.5 `app/adapters/__init__.py` 注册类型;`app/models/pipeline.py` type 注释补 `hf_papers`。验证:注册后 `get_adapter("hf_papers")` 可取
-- [ ] 4.6 admin 表单:`app/web/pages.py` 的 `type_supported` 与 `/admin/pipes/add` 分支加 hf_papers(config_value=可选自定义出口),`pipes.html` 下拉加选项。验证:pytest 中相关页面测试通过(如有)+ 手动渲染确认
+- [x] 4.2 写幂等迁移脚本 `scripts/migration/add_paper_extra.py`(information_schema 检查列存在与否,缺则 ALTER)。验证:对本地 MySQL 跑两遍,第二遍 no-op
+- [x] 4.3 先写测试:`tests/adapters/test_hf_papers.py` 用真实 API 形状的离线 fixture(脱敏自 2026-09-23 实测响应)——标准条目映射(id→external_id、canonical abs URL、summary→abstract、authors[].name→all_authors、pdf_url 构造、upvotes/githubRepo/githubStars→meta.extra、publishedAt→published_at)、缺 categories 不算失败、条目 id 形态非法记条目级错误、三日期窗口调用、镜像结构异常触发回退(代理直连官方域)、全出口失败抛错给 fetcher 隔离层。RED
+- [x] 4.4 实现 `app/adapters/hf_papers.py`(默认出口 hf-mirror,`config.base_url` 可覆盖;日期窗口取 UTC 今天/昨天/前天;走出网收口,国内直连优先)。RED→GREEN
+- [x] 4.5 `app/adapters/__init__.py` 注册类型;`app/models/pipeline.py` type 注释补 `hf_papers`。验证:注册后 `get_adapter("hf_papers")` 可取
+- [x] 4.6 admin 表单:`app/web/pages.py` 的 `type_supported` 与 `/admin/pipes/add` 分支加 hf_papers(config_value=可选自定义出口),`pipes.html` 下拉加选项。验证:pytest 中相关页面测试通过(如有)+ 手动渲染确认
 
 ## 5. E — 运营切换与验收
 

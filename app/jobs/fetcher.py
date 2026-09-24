@@ -12,6 +12,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.adapters import FetchedItem, get_adapter
+from app.adapters.arxiv import build_keyword_query
 from app.models import Domain, Pipe, RunLog
 from app.services.doc_fields import build_detail, detect_doc_kind, parse_github_owner_name
 from app.utils.html_clean import estimate_word_count
@@ -24,14 +25,20 @@ def now_ts() -> int:
 
 
 def resolve_fetch_config(db: Session, pipe: Pipe) -> dict[str, Any]:
-    """管道生效配置。派生 github 管道把领域关键词列表注入 config,
-    最终检索串由适配器组装(ASCII 过滤/OR/热度限定符);关键词改后下次采集即生效。"""
+    """管道生效配置。派生管道把领域关键词实时注入 config:
+    github 注入关键词列表(检索串由适配器组装),arxiv 直接生成
+    `all:"..." OR ...` 检索串(全中文关键词 → 空 query,适配器空转);
+    关键词改后下次采集即生效。"""
     config = json.loads(pipe.config) if pipe.config else {}
-    if pipe.domain_id and pipe.type == "github":
-        domain = db.get(Domain, pipe.domain_id)
-        keywords = json.loads(domain.keywords) if domain and domain.keywords else []
-        if keywords:
-            config["keywords"] = keywords
+    if not (pipe.domain_id and pipe.type in ("github", "arxiv")):
+        return config
+    domain = db.get(Domain, pipe.domain_id)
+    keywords = json.loads(domain.keywords) if domain and domain.keywords else []
+    if pipe.type == "arxiv":
+        # 派生管道恒有 query 键:无 ASCII 关键词与全中文同样空转,不落回 category 火龙
+        config["query"] = build_keyword_query(keywords or [])
+    elif keywords:
+        config["keywords"] = keywords
     return config
 
 
