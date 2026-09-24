@@ -18,6 +18,7 @@ _ENTITY_MODEL = {"paper": Paper, "repo": Repo, "article": Article}
 # 再次采集允许补空的 paper 字段;实体固有属性照常一等存储(design 决策 3)
 _PAPER_BACKFILL_FIELDS = ("abstract", "content_text", "authors", "categories",
                           "pdf_url", "version", "submitted_at", "extra")
+_REPO_BACKFILL_FIELDS = ("readme_text",)
 
 
 @dataclass(frozen=True)
@@ -57,6 +58,7 @@ def upsert_doc(
     existing = db.query(Doc).filter(Doc.url_key == url_key).first()
     if existing is not None:
         _backfill_paper(db, existing, kind, detail)
+        _backfill_repo(db, existing, kind, detail)
         seen = (
             db.query(Discovery)
             .filter(Discovery.pipe_id == pipe_id, Discovery.external_id == external_id)
@@ -89,6 +91,28 @@ def upsert_doc(
         db.rollback()
         raise
     return UpsertResult(doc.id, True, True)
+
+
+def _backfill_repo(db: Session, doc: Doc, kind: str, detail: dict) -> None:
+    """已存在 doc 再次提交时补齐 repo 实体行的空字段(现仅 README)。
+
+    readme_text 三态:只填 NULL(未抓),""(已确认无 README)与非空不覆盖。
+    """
+    if kind != "repo":
+        return
+    repo = db.get(Repo, doc.id)
+    if repo is None:
+        return
+    changed = False
+    for field in _REPO_BACKFILL_FIELDS:
+        new_value = detail.get(field)
+        if new_value is None:
+            continue
+        if getattr(repo, field) is None:
+            setattr(repo, field, new_value)
+            changed = True
+    if changed:
+        db.commit()
 
 
 def _backfill_paper(db: Session, doc: Doc, kind: str, detail: dict) -> None:

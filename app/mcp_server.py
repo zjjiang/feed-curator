@@ -94,10 +94,11 @@ def list_pipes() -> dict:
 def save_url(url: str, note: str = "") -> dict:
     """手工存入一个 URL(文章/仓库/论文)。实体类型由 URL 自动判定。
 
-    文章会抓取正文(带 SSRF 防护);仓库与论文仅建档,字段由补全流程填充。
+    文章抓取正文(带 SSRF 防护);仓库抓取 README;论文经 arXiv API 抓取
+    摘要与作者。补全失败不阻塞入库,文档留空待重试(再次提交同一链接即重试)。
 
     Returns:
-        {doc_id, kind, created};error 为抓取失败原因(文档仍会入库)。
+        {doc_id, kind, created, error, title};error 为补全失败原因(文档仍会入库)。
     """
     from app.services import manual_service
 

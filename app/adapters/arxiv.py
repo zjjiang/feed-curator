@@ -3,6 +3,8 @@ from typing import Any
 from urllib.parse import quote
 from xml.etree import ElementTree as ET
 
+import httpx
+
 from app.adapters.base import SourceAdapter, FetchedItem
 from app.utils import outbound
 from app.utils.html_clean import html_to_text
@@ -34,6 +36,19 @@ def _api_url(search_query: str, max_results: int) -> str:
             + f"&sortBy=submittedDate&sortOrder=descending&max_results={max_results}")
 
 
+def _id_url(arxiv_id: str) -> str:
+    return ("https://export.arxiv.org/api/query?"
+            + f"id_list={quote(arxiv_id, safe='')}&max_results=1")
+
+
+def fetch_paper_by_id(arxiv_id: str, *,
+                      transport: httpx.BaseTransport | None = None) -> FetchedItem | None:
+    """按 id 精确取单篇(手工存入论文的实体补全);feed 无条目返回 None。"""
+    resp = outbound.request(_id_url(arxiv_id), timeout=30.0, transport=transport)
+    items = parse_atom(resp.text)
+    return items[0] if items else None
+
+
 class ArxivAdapter(SourceAdapter):
     type = "arxiv"
 
@@ -56,56 +71,60 @@ class ArxivAdapter(SourceAdapter):
         return self._parse(resp.text)
 
     def _parse(self, xml_text: str) -> list[FetchedItem]:
-        root = ET.fromstring(xml_text)
-        items: list[FetchedItem] = []
+        return parse_atom(xml_text)
 
-        for entry in root.findall("atom:entry", ARXIV_NS):
-            arxiv_id = entry.findtext("atom:id", "", ARXIV_NS).strip()
-            title = entry.findtext("atom:title", "", ARXIV_NS).strip().replace("\n", " ")
-            summary = entry.findtext("atom:summary", "", ARXIV_NS).strip()
-            published = entry.findtext("atom:published", "", ARXIV_NS).strip()
 
-            authors = [
-                a.findtext("atom:name", "", ARXIV_NS)
-                for a in entry.findall("atom:author", ARXIV_NS)
-            ]
+def parse_atom(xml_text: str) -> list[FetchedItem]:
+    root = ET.fromstring(xml_text)
+    items: list[FetchedItem] = []
 
-            links = entry.findall("atom:link", ARXIV_NS)
-            pdf_url = ""
-            abs_url = arxiv_id
-            for link in links:
-                if link.get("title") == "pdf":
-                    pdf_url = link.get("href", "")
-                elif link.get("rel") == "alternate":
-                    abs_url = link.get("href", arxiv_id)
+    for entry in root.findall("atom:entry", ARXIV_NS):
+        arxiv_id = entry.findtext("atom:id", "", ARXIV_NS).strip()
+        title = entry.findtext("atom:title", "", ARXIV_NS).strip().replace("\n", " ")
+        summary = entry.findtext("atom:summary", "", ARXIV_NS).strip()
+        published = entry.findtext("atom:published", "", ARXIV_NS).strip()
 
-            categories = [
-                c.get("term", "")
-                for c in entry.findall("atom:category", ARXIV_NS)
-                if c.get("term")
-            ]
+        authors = [
+            a.findtext("atom:name", "", ARXIV_NS)
+            for a in entry.findall("atom:author", ARXIV_NS)
+        ]
 
-            pub_ts = _parse_arxiv_time(published)
+        links = entry.findall("atom:link", ARXIV_NS)
+        pdf_url = ""
+        abs_url = arxiv_id
+        for link in links:
+            if link.get("title") == "pdf":
+                pdf_url = link.get("href", "")
+            elif link.get("rel") == "alternate":
+                abs_url = link.get("href", arxiv_id)
 
-            item = FetchedItem(
-                external_id=arxiv_id,
-                title=title,
-                url=abs_url,
-                author=", ".join(authors[:3]) + ("..." if len(authors) > 3 else ""),
-                description=summary[:500],
-                content_text=summary,
-                content_html=None,
-                cover_image_url=None,
-                published_at=pub_ts,
-                meta={
-                    "categories": categories,
-                    "pdf_url": pdf_url,
-                    "all_authors": authors,
-                },
-            )
-            items.append(item)
+        categories = [
+            c.get("term", "")
+            for c in entry.findall("atom:category", ARXIV_NS)
+            if c.get("term")
+        ]
 
-        return items
+        pub_ts = _parse_arxiv_time(published)
+
+        item = FetchedItem(
+            external_id=arxiv_id,
+            title=title,
+            url=abs_url,
+            author=", ".join(authors[:3]) + ("..." if len(authors) > 3 else ""),
+            description=summary[:500],
+            content_text=summary,
+            content_html=None,
+            cover_image_url=None,
+            published_at=pub_ts,
+            meta={
+                "categories": categories,
+                "pdf_url": pdf_url,
+                "all_authors": authors,
+            },
+        )
+        items.append(item)
+
+    return items
 
 
 def _parse_arxiv_time(s: str) -> int | None:
