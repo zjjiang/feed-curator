@@ -4,8 +4,8 @@ TDD:每个实现任务先写失败测试再实现。测试沿用 tests/ 既有�
 
 ## 1. 微信链接归一化特例(url_key)
 
-- [ ] 1.1 先写测试:`tests/utils/test_url_key.py` 新增用例——同文章不同分享参数(chksm/scene 有无、顺序不同)归并为同一 url_key;`__biz/mid/idx/sn` 任一不同不归并;非微信 host 携带陌生参数原样保留(既有用例 MUST 全绿)。运行确认 RED
-- [ ] 1.2 实现 `app/utils/url_key.py` host 级 keep-list(`mp.weixin.qq.com` → 仅保留 `__biz/mid/idx/sn`,顺序保持;其余 host 行为不变)。运行确认 GREEN
+- [x] 1.1 先写测试:`tests/utils/test_url_key.py` 新增用例——同文章不同分享参数(chksm/scene 有无、顺序不同)归并为同一 url_key;`__biz/mid/idx/sn` 任一不同不归并;非微信 host 携带陌生参数原样保留(既有用例 MUST 全绿)。运行确认 RED
+- [x] 1.2 实现 `app/utils/url_key.py` host 级 keep-list(`mp.weixin.qq.com` → 仅保留 `__biz/mid/idx/sn`,顺序保持;其余 host 行为不变)。运行确认 GREEN
 
 ## 2. 手工存入实体补全(manual_service)
 
