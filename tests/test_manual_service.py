@@ -5,10 +5,42 @@ from app.services import fulltext, manual_service
 from app.services.fulltext import ArchiveError
 
 
+class FakeGithubClient:
+    """按 full_name 返回预置 README;failures 中的抛异常模拟网络失败。"""
+
+    def __init__(self, responses=None, failures=()):
+        self.responses = responses or {}
+        self.failures = set(failures)
+        self.calls = []
+
+    def get_readme(self, owner: str, name: str):
+        key = f"{owner}/{name}"
+        self.calls.append(key)
+        if key in self.failures:
+            raise RuntimeError("网络炸了")
+        return self.responses.get(key)
+
+    def close(self):
+        pass
+
+
+@pytest.fixture()
+def github_factory(monkeypatch):
+    """把 manual_service 内部构造的 GitHubClient 替换为可编程 fake。"""
+
+    def install(client: FakeGithubClient) -> FakeGithubClient:
+        monkeypatch.setattr("app.services.github_client.GitHubClient",
+                            lambda *a, **k: client)
+        return client
+
+    return install
+
+
 class TestSaveUrlNoNetwork:
     """repo / paper 不走网络,直接从 URL 提取结构化字段。"""
 
-    def test_github_url_becomes_repo(self, db_session):
+    def test_github_url_becomes_repo(self, db_session, github_factory):
+        github_factory(FakeGithubClient())
         r = manual_service.save_url(db_session, "https://github.com/acme/cool-repo")
         assert r["kind"] == "repo" and r["created"] and r["error"] is None
         repo = db_session.query(Repo).one()
@@ -28,10 +60,44 @@ class TestSaveUrlNoNetwork:
         from app.models import Doc
         assert db_session.query(Doc).count() == 0
 
-    def test_same_url_twice_not_duplicated(self, db_session):
+    def test_same_url_twice_not_duplicated(self, db_session, github_factory):
+        github_factory(FakeGithubClient())
         manual_service.save_url(db_session, "https://github.com/acme/cool-repo")
         r2 = manual_service.save_url(db_session, "https://github.com/acme/cool-repo/")
         assert not r2["created"]
+
+
+class TestSaveUrlRepoReadme:
+    """手工存入仓库:入库前抓取 README,失败不阻塞。"""
+
+    def test_new_repo_fetches_readme(self, db_session, github_factory):
+        client = github_factory(FakeGithubClient({"acme/cool-repo": "# Cool\n正文"}))
+        r = manual_service.save_url(db_session, "https://github.com/acme/cool-repo")
+        assert r["kind"] == "repo" and r["error"] is None
+        repo = db_session.query(Repo).one()
+        assert repo.readme_text == "# Cool\n正文"
+        assert client.calls == ["acme/cool-repo"]
+
+    def test_readme_404_confirmed_empty(self, db_session, github_factory):
+        github_factory(FakeGithubClient())  # 无预置 → get_readme 返回 None(404)
+        r = manual_service.save_url(db_session, "https://github.com/acme/x")
+        assert r["error"] is None
+        repo = db_session.query(Repo).one()
+        assert repo.readme_text == ""
+
+    def test_readme_failure_still_saves(self, db_session, github_factory):
+        github_factory(FakeGithubClient(failures={"acme/x"}))
+        r = manual_service.save_url(db_session, "https://github.com/acme/x")
+        assert r["created"] and r["error"]
+        repo = db_session.query(Repo).one()
+        assert repo.readme_text is None
+
+    def test_filled_readme_not_refetched(self, db_session, github_factory):
+        github_factory(FakeGithubClient({"acme/cool-repo": "# 有内容"}))
+        manual_service.save_url(db_session, "https://github.com/acme/cool-repo")
+        second = github_factory(FakeGithubClient())  # 换一个零调用的 client
+        manual_service.save_url(db_session, "https://github.com/acme/cool-repo")
+        assert second.calls == []
 
 
 class TestSaveUrlArticle:
