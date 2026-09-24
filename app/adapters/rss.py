@@ -4,6 +4,7 @@ from typing import Any
 import feedparser
 
 from app.adapters.base import SourceAdapter, FetchedItem
+from app.utils import outbound
 from app.utils.html_clean import html_to_text
 
 
@@ -74,20 +75,31 @@ def _pick_cover_image(entry, content_html: str) -> str | None:
     return None
 
 
+def _load_feed(config: dict[str, Any]) -> str:
+    """取 feed 内容:URL 走出网收口(条件 GET,304 → 返回空串),
+    非 http 字符串视为已就地的 feed 内容(测试离线投喂)。"""
+    feed_url = config["feed_url"]
+    if not feed_url.startswith(("http://", "https://")):
+        return feed_url
+    headers = {"User-Agent": "feed-curator/0.1 (+rss)"}
+    if config.get("etag"):
+        headers["If-None-Match"] = config["etag"]
+    if config.get("modified"):
+        headers["If-Modified-Since"] = config["modified"]
+    resp = outbound.request(feed_url, headers=headers, follow_redirects=True)
+    if resp.status_code == 304:
+        return ""
+    return resp.text
+
+
 class RSSAdapter(SourceAdapter):
     type = "rss"
 
     def fetch(self, config: dict[str, Any]) -> list[FetchedItem]:
-        feed_url = config["feed_url"]
-        etag = config.get("etag")
-        modified = config.get("modified")
-
-        parsed = feedparser.parse(
-            feed_url,
-            etag=etag,
-            modified=modified,
-            request_headers={"User-Agent": "feed-curator/0.1 (+rss)"},
-        )
+        content = _load_feed(config)
+        if not content:
+            return []
+        parsed = feedparser.parse(content)
 
         items: list[FetchedItem] = []
         for entry in parsed.entries:

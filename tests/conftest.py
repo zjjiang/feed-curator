@@ -5,6 +5,21 @@ from sqlalchemy.pool import StaticPool
 
 from app.models import Base
 
+_PROXY_ENV_VARS = (
+    "OUTBOUND_PROXY", "CLASH_PROXY_PORT",
+    "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy",
+    "ALL_PROXY", "all_proxy",
+)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_proxy_env(monkeypatch):
+    """出网收口按环境变量选路;测试一律从无代理环境出发,需要代理语义的
+    用例(如 tests/utils/test_outbound.py)自行 setenv。否则开发者本机的
+    常驻代理变量会泄入 MockTransport 用例,导致意外走真实代理拨号。"""
+    for var in _PROXY_ENV_VARS:
+        monkeypatch.delenv(var, raising=False)
+
 
 @pytest.fixture()
 def db_session():

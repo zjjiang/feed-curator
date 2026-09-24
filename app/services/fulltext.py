@@ -14,6 +14,7 @@ from urllib.parse import urljoin, urlsplit, urlunsplit
 import httpx
 from bs4 import BeautifulSoup
 
+from app.utils import outbound
 from app.utils.html_clean import html_to_text
 
 
@@ -63,28 +64,23 @@ def fetch_html(url: str, timeout: float = 15.0, max_redirects: int = 5,
                transport: httpx.BaseTransport | None = None) -> tuple[str, str]:
     """抓取网页,返回 (html, final_url)。重定向手动逐跳跟随,每跳都过 SSRF 校验。"""
     current = url
-    with httpx.Client(timeout=timeout, follow_redirects=False,
-                      headers=_HEADERS, transport=transport) as client:
-        for _ in range(max_redirects + 1):
-            assert_public_url(current)
-            try:
-                resp = client.get(current)
-            except httpx.HTTPError as exc:
-                raise ArchiveError(f"网页抓取失败:{exc}") from exc
-            if resp.is_redirect:
-                location = resp.headers.get("location", "")
-                if not location:
-                    raise ArchiveError("重定向缺少目标地址")
-                current = urljoin(current, location)
-                continue
-            try:
-                resp.raise_for_status()
-            except httpx.HTTPError as exc:
-                raise ArchiveError(f"网页抓取失败:{exc}") from exc
-            content_type = resp.headers.get("content-type", "")
-            if "html" not in content_type.lower():
-                raise ArchiveError(f"暂只支持网页文章,返回类型为 {content_type or '未知'}")
-            return resp.text, str(resp.url)
+    for _ in range(max_redirects + 1):
+        assert_public_url(current)
+        try:
+            resp = outbound.request(current, timeout=timeout,
+                                    headers=_HEADERS, transport=transport)
+        except httpx.HTTPError as exc:
+            raise ArchiveError(f"网页抓取失败:{exc}") from exc
+        if resp.is_redirect:
+            location = resp.headers.get("location", "")
+            if not location:
+                raise ArchiveError("重定向缺少目标地址")
+            current = urljoin(current, location)
+            continue
+        content_type = resp.headers.get("content-type", "")
+        if "html" not in content_type.lower():
+            raise ArchiveError(f"暂只支持网页文章,返回类型为 {content_type or '未知'}")
+        return resp.text, str(resp.url)
     raise ArchiveError("重定向次数过多")
 
 

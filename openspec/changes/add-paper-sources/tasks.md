@@ -4,10 +4,10 @@
 
 ## 1. A — 出网 HTTP 统一收口
 
-- [ ] 1.1 先写测试:新建 `tests/utils/test_outbound.py`——`resolve_proxy()` 的环境变量优先级(OUTBOUND_PROXY > CLASH_PROXY_PORT > 标准代理变量 > 无)、境外源 [proxy→direct] 与国内源 [direct→proxy] 的尝试顺序、连接类错误(ConnectError/ConnectTimeout)切换路径重试一次、HTTP 状态错误不重试、未配置代理时仅直连。运行确认 RED
-- [ ] 1.2 实现 `app/utils/outbound.py`:`resolve_proxy()`、`request(url, *, domestic=False, timeout=...)`,失败判定与回退逻辑按测试落地。运行确认 GREEN
-- [ ] 1.3 迁移调用点:`app/adapters/arxiv.py`、`app/adapters/rss.py`(境外/国内标记按 host 判断)、`app/services/fulltext.py` 改用统一收口;wechat/wewe 不动。验证:全量 pytest 通过,现有 MockTransport 用例改造后语义不变
-- [ ] 1.4 在 `.env.example`(或 CLAUDE.md 运行说明)记录 `OUTBOUND_PROXY` / `CLASH_PROXY_PORT` 的语义。验证:文档中可查
+- [x] 1.1 先写测试:新建 `tests/utils/test_outbound.py`——`resolve_proxy()` 的环境变量优先级(OUTBOUND_PROXY > CLASH_PROXY_PORT > 标准代理变量 > 无)、境外源 [proxy→direct] 与国内源 [direct→proxy] 的尝试顺序、连接类错误(ConnectError/ConnectTimeout)切换路径重试一次、HTTP 状态错误不重试、未配置代理时仅直连。运行确认 RED
+- [x] 1.2 实现 `app/utils/outbound.py`:`resolve_proxy()`、`request(url, *, domestic=False, timeout=...)`,失败判定与回退逻辑按测试落地。运行确认 GREEN
+- [x] 1.3 迁移调用点:`app/adapters/arxiv.py`、`app/adapters/rss.py`(境外/国内标记按 host 判断)、`app/services/fulltext.py` 改用统一收口;wechat/wewe 不动。验证:全量 pytest 通过,现有 MockTransport 用例改造后语义不变
+- [x] 1.4 在 `.env.example`(或 CLAUDE.md 运行说明)记录 `OUTBOUND_PROXY` / `CLASH_PROXY_PORT` 的语义。验证:文档中可查
 
 ## 2. B — 论文 URL 规范化 + 补空回填(身份层)
 

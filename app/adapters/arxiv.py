@@ -1,9 +1,9 @@
 import time
 from typing import Any
-import httpx
 from xml.etree import ElementTree as ET
 
 from app.adapters.base import SourceAdapter, FetchedItem
+from app.utils import outbound
 from app.utils.html_clean import html_to_text
 
 ARXIV_NS = {
@@ -20,9 +20,7 @@ class ArxivAdapter(SourceAdapter):
         max_results = config.get("max_results", 30)
         url = f"https://export.arxiv.org/api/query?search_query=cat:{category}&sortBy=submittedDate&sortOrder=descending&max_results={max_results}"
 
-        with httpx.Client(timeout=30.0) as client:
-            resp = client.get(url)
-            resp.raise_for_status()
+        resp = outbound.request(url, timeout=30.0)
 
         root = ET.fromstring(resp.text)
         items: list[FetchedItem] = []
