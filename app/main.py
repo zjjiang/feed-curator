@@ -476,3 +476,15 @@ def doc_links(doc_id: int, db: Session = Depends(get_session)):
     links = db.query(DocumentLink).filter(DocumentLink.from_doc_id == doc_id).all()
     return HTMLResponse(content=json_dump([
         {"to_doc_id": l.to_doc_id, "kind": l.kind} for l in links]))
+
+
+# ============ 学习工作台 ============
+
+@app.get("/api/study/docs")
+def study_docs(days: int = Query(7, ge=1, le=30),
+               db: Session = Depends(get_session)):
+    """近 days 天文档的学习载荷(卡片流/列表工作台一次拉取,客户端本地过滤)。"""
+    from app.services.study_service import collect_study_docs
+
+    docs = collect_study_docs(db, days)
+    return {"days": days, "count": len(docs), "docs": docs}

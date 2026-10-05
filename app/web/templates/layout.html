@@ -72,7 +72,8 @@
 {% else %}
 <nav>
   <span class="brand">feed-curator</span>
-  <a href="/" class="active">订阅</a>
+  <a href="/" {% if request.url.path == '/' %}class="active"{% endif %}>订阅</a>
+  <a href="/study" {% if request.url.path == '/study' %}class="active"{% endif %}>学习台</a>
   <a href="/admin" style="margin-left:auto">管理后台 →</a>
 </nav>
 {% endif %}
