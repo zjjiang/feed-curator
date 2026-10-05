@@ -562,3 +562,12 @@ def _fmt_duration(ms: int | None) -> str:
     if ms < 1000:
         return f"{ms}ms"
     return f"{ms // 1000}s"
+
+
+@router.get("/study", response_class=HTMLResponse)
+def study_page(request: Request, db: Session = Depends(get_session)):
+    """学习工作台:卡片流/列表双模式,数据由 /api/study/docs 前端拉取。"""
+    domains = db.query(Domain).order_by(Domain.name).all()
+    return templates.TemplateResponse(request, "study.html", {
+        "domains": [{"name": d.name, "enabled": bool(d.enabled)} for d in domains],
+    })

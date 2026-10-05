@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>学习工作台 · feed-curator</title>
+<style>
+  :root { color-scheme: light dark;
+    --bg: #f6f6f4; --panel: #ffffff; --line: #e4e2dd; --ink: #1d1d1b; --ink2: #6b6963;
+    --accent: #2f6f4f; --accent-soft: #e7f0eb; --star: #d99a2b; --err: #b4542d; }
+  @media (prefers-color-scheme: dark) { :root {
+    --bg: #17181a; --panel: #202226; --line: #34363c; --ink: #e8e6e1; --ink2: #9a978f;
+    --accent: #7fb99b; --accent-soft: #26332d; --star: #d9a94b; --err: #d08260; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 15px/1.65 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  a { color: var(--accent); text-decoration: none; }
+  .wrap { display: grid; grid-template-columns: 280px 1fr; height: 100vh; }
+  /* ===== 侧栏 ===== */
+  aside { border-right: 1px solid var(--line); padding: 18px 16px; overflow-y: auto; background: var(--panel); }
+  h1 { font-size: 17px; margin: 0 0 2px; }
+  .sub { color: var(--ink2); font-size: 12px; margin-bottom: 12px; }
+  input[type=search] { width: 100%; padding: 7px 10px; border: 1px solid var(--line);
+    border-radius: 8px; background: var(--bg); color: var(--ink); font-size: 13px; margin-bottom: 12px; }
+  .grp { font-size: 12px; color: var(--ink2); margin: 14px 0 6px; letter-spacing: .05em; }
+  .chip { display: inline-block; margin: 0 6px 6px 0; padding: 3px 10px; border-radius: 999px;
+    border: 1px solid var(--line); font-size: 12.5px; cursor: pointer; user-select: none; }
+  .chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .stars-chip.on { background: var(--star); border-color: var(--star); color: #1d1d1b; }
+  .meta-line { font-size: 12px; color: var(--ink2); margin-top: 14px; line-height: 1.8; }
+  kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px;
+    padding: 0 5px; font-size: 11px; font-family: inherit; }
+  /* ===== 列表模式 ===== */
+  main { overflow-y: auto; position: relative; }
+  .list { max-width: 860px; margin: 0 auto; padding: 16px 22px 80px; }
+  .row { border-bottom: 1px solid var(--line); padding: 13px 4px; display: flex; gap: 12px; cursor: pointer; }
+  .row:hover { background: color-mix(in srgb, var(--accent-soft) 55%, transparent); }
+  .star { color: var(--star); font-size: 13px; width: 58px; flex: none; letter-spacing: 1px; }
+  .row .body { flex: 1; min-width: 0; }
+  .row .t { font-size: 15px; font-weight: 600; }
+  .row.read .t { color: var(--ink2); font-weight: 400; }
+  .row .s { color: var(--ink2); font-size: 13px; margin-top: 2px; display: -webkit-box;
+    -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .tags { margin-top: 4px; font-size: 11.5px; color: var(--ink2); display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .tag { background: var(--accent-soft); color: var(--accent); border-radius: 4px; padding: 1px 6px; }
+  .tag.paper { background: #e8ecf5; color: #4a5f94; }
+  .tag.repo { background: #f0e9f5; color: #6f4a94; }
+  .favdot { color: var(--star); }
+  @media (prefers-color-scheme: dark) { .tag.paper { background:#28303f; color:#9db4e0; } .tag.repo { background:#322a3d; color:#c09ad8; } }
+  .empty { text-align: center; color: var(--ink2); padding: 80px 0; }
+  /* ===== 详情浮层(列表模式)===== */
+  #detail { position: fixed; inset: 0; background: rgb(0 0 0 / 35%); display: none; z-index: 10; }
+  #detail.open { display: block; }
+  .sheet { position: absolute; top: 0; right: 0; bottom: 0; width: min(680px, 92vw);
+    background: var(--panel); border-left: 1px solid var(--line); padding: 26px 30px 40px; overflow-y: auto; }
+  .sheet h2 { font-size: 19px; line-height: 1.45; margin: 0 0 6px; }
+  .sheet .byline { color: var(--ink2); font-size: 12.5px; margin-bottom: 14px; }
+  .sheet .actions { display: flex; gap: 10px; margin-bottom: 18px; flex-wrap: wrap; }
+  .btn { border: 1px solid var(--line); background: var(--bg); color: var(--ink);
+    border-radius: 8px; padding: 6px 14px; font-size: 13px; cursor: pointer; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.fav.on { background: var(--star); border-color: var(--star); color: #1d1d1b; }
+  .btn:disabled { opacity: .4; cursor: default; }
+  .sheet h3 { font-size: 13px; color: var(--ink2); margin: 18px 0 6px; letter-spacing: .05em; }
+  .sheet .summary { font-size: 15px; }
+  .sheet ul { margin: 6px 0; padding-left: 20px; }
+  .sheet li { margin: 5px 0; font-size: 14.5px; }
+  /* ===== 指标 header ===== */
+  .metrics { display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+    padding: 10px 22px; border-bottom: 1px solid var(--line); background: var(--panel);
+    position: sticky; top: 0; z-index: 6; }
+  .metric { padding: 4px 14px; border: 1px solid var(--line); border-radius: 10px;
+    background: var(--bg); line-height: 1.3; }
+  .metric b { font-size: 19px; font-variant-numeric: tabular-nums; }
+  .metric .lbl { font-size: 11.5px; color: var(--ink2); margin-left: 6px; }
+  .metric.click { cursor: pointer; }
+  .metric.click:hover { border-color: var(--accent); }
+  .metric.click.on { background: var(--accent-soft); border-color: var(--accent); }
+  .metric.click.on .lbl { color: var(--accent); }
+  .metric.star b { color: var(--star); }
+  /* ===== 卡片流模式 ===== */
+  .stream { max-width: 720px; margin: 0 auto; padding: 34px 26px 110px; }
+  .progress { height: 3px; background: var(--line); position: sticky; top: 0; z-index: 5; }
+  .progress i { display: block; height: 100%; background: var(--accent); transition: width .25s; }
+  .card { animation: fadein .25s ease; }
+  @keyframes fadein { from { opacity: 0; transform: translateY(8px); } }
+  .card .stars { color: var(--star); font-size: 15px; letter-spacing: 2px; }
+  .card h2 { font-size: 24px; line-height: 1.4; margin: 10px 0 10px; }
+  .card .byline { color: var(--ink2); font-size: 13px; padding-bottom: 16px;
+    border-bottom: 1px solid var(--line); }
+  .card .summary { font-size: 16.5px; margin-top: 20px; }
+  .card h3 { font-size: 13px; color: var(--ink2); margin: 22px 0 8px; letter-spacing: .05em; }
+  .card ul { margin: 0; padding-left: 22px; }
+  .card li { margin: 8px 0; font-size: 15.5px; }
+  .card .actions { display: flex; gap: 10px; margin-top: 26px; flex-wrap: wrap; }
+  .nav { position: fixed; bottom: 0; left: 280px; right: 0; background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: blur(8px); border-top: 1px solid var(--line);
+    display: flex; justify-content: space-between; align-items: center; padding: 10px 26px; }
+  .nav .pos { color: var(--ink2); font-size: 13px; }
+  .nav .btns { display: flex; gap: 10px; }
+  /* ===== 加载/提示 ===== */
+  #toast { position: fixed; bottom: 64px; left: 50%; transform: translateX(-50%);
+    background: var(--err); color: #fff; border-radius: 8px; padding: 8px 18px;
+    font-size: 13px; display: none; z-index: 20; }
+  .loading { text-align: center; color: var(--ink2); padding: 120px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <aside>
+    <h1>📚 学习工作台</h1>
+    <div class="sub" id="sub">加载中…</div>
+    <input type="search" id="q" placeholder="搜索标题 / 摘要…">
+    <div class="grp">视图模式</div>
+    <div>
+      <span class="chip" data-mode="stream">卡片流 <kbd>←→</kbd></span>
+      <span class="chip" data-mode="list">列表</span>
+    </div>
+    <div class="grp">时间窗口</div>
+    <div id="fDays"></div>
+    <div class="grp">星级</div><div id="fStars"></div>
+    <div class="grp">领域</div><div id="fDomains"></div>
+    <div class="grp">类型</div><div id="fKinds"></div>
+    <div class="grp">视图</div>
+    <div>
+      <span class="chip" data-view="unread">只看未读</span>
+      <span class="chip" data-view="fav">收藏</span>
+    </div>
+    <div class="meta-line" id="stat"></div>
+    <div class="meta-line">
+      卡片流:<kbd>←</kbd><kbd>→</kbd> 翻篇(翻过即已读),<kbd>f</kbd> 收藏<br>
+      <a href="/">← 返回订阅流</a> · 已读/收藏实时同步服务端
+    </div>
+  </aside>
+  <main id="main"><div id="metrics"></div><div id="view"><div class="loading" id="loading">正在拉取学习载荷…</div></div></main>
+</div>
+<div id="detail"><div class="sheet" id="sheet"></div></div>
+<div id="toast"></div>
+<script>
+const KIND = {article:"文章", paper:"论文", repo:"仓库"};
+const ls = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
+const put = (k, v) => localStorage.setItem(k, JSON.stringify(v));
+let DATA = [];                                    // 服务端载荷
+let state = { read: ls("wb_read", {}), fav: ls("wb_fav", {}) };   // 乐观镜像,服务端为准
+let mode = ls("wb_mode", "stream");
+let days = ls("wb_days", 7);
+let curId = ls("wb_cur", null);
+let fDomain = null, fStar = 0, fKind = null, view = null, q = "";
+let rows = [], idx = -1, loaded = false;
+const stars = n => n ? "★".repeat(n) + "☆".repeat(5 - n) : "未评";
+const fmtDate = ts => { const d = new Date(ts * 1000);
+  return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`; };
+
+function toast(msg) {
+  const el = document.getElementById("toast");
+  el.textContent = msg; el.style.display = "block";
+  clearTimeout(el._t); el._t = setTimeout(() => el.style.display = "none", 2600);
+}
+
+/* ---------- 服务端同步 ---------- */
+async function postReading(id, field, value) {
+  try {
+    const resp = await fetch(`/api/docs/${id}/reading`, {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({[field]: value}),
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const d = DATA.find(x => x.id === id);
+    if (d) d[field] = value;                       // 服务端确认后更新载荷镜像
+    return true;
+  } catch (e) {
+    toast(`同步失败(${e.message}),已回退本地状态`);
+    const d = DATA.find(x => x.id === id);
+    if (d) d[field] = !value;
+    renderStat();
+    return false;
+  }
+}
+function markRead(id) {
+  if (state.read[id]) return;
+  state.read[id] = 1; save();
+  postReading(id, "is_read", true);
+}
+function setRead(id, value) {
+  if (value) state.read[id] = 1; else delete state.read[id];
+  save(); postReading(id, "is_read", value);
+}
+function setFav(id, value) {
+  if (value) state.fav[id] = 1; else delete state.fav[id];
+  save(); postReading(id, "is_favorite", value);
+}
+const save = () => { put("wb_read", state.read); put("wb_fav", state.fav); };
+
+/* ---------- 载荷 ---------- */
+async function load() {
+  try {
+    const resp = await fetch(`/api/study/docs?days=${days}`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const body = await resp.json();
+    DATA = body.docs;
+    DATA.forEach(d => {                            // 服务端状态为真相,覆盖乐观镜像
+      if (d.is_read) state.read[d.id] = 1; else delete state.read[d.id];
+      if (d.is_favorite) state.fav[d.id] = 1; else delete state.fav[d.id];
+    });
+    loaded = true;
+    renderAll();
+  } catch (e) {
+    const lv = document.getElementById("loading") || document.getElementById("view");
+    lv.textContent = `载荷加载失败:${e.message}`;
+  }
+}
+
+function filtered() {
+  return DATA.filter(d => {
+    if (fDomain && !d.domains.includes(fDomain)) return false;
+    if (fStar && d.stars < fStar) return false;
+    if (fKind && d.kind !== fKind) return false;
+    if (view === "unread" && state.read[d.id]) return false;
+    if (view === "fav" && !state.fav[d.id]) return false;
+    if (q) { const s = (d.title + d.summary).toLowerCase();
+             if (!s.includes(q.toLowerCase())) return false; }
+    return true;
+  });
+}
+
+/* ---------- 侧栏 ---------- */
+function renderChips() {
+  const domCount = {};
+  DATA.forEach(d => d.domains.forEach(x => domCount[x] = (domCount[x]||0)+1));
+  document.getElementById("fDomains").innerHTML =
+    Object.entries(domCount).sort((a,b)=>b[1]-a[1]).map(([n,c]) =>
+      `<span class="chip ${fDomain===n?"on":""}" data-dom="${n}">${n} ${c}</span>`).join("") || "(无)";
+  document.getElementById("fStars").innerHTML = [4,3,0].map(v =>
+    `<span class="chip stars-chip ${fStar===v?"on":""}" data-star="${v}">${v? v+"★+" : "全部"}</span>`).join("");
+  document.getElementById("fKinds").innerHTML = Object.entries(KIND).map(([k,n]) =>
+    `<span class="chip ${fKind===k?"on":""}" data-kind="${k}">${n}</span>`).join("");
+  document.getElementById("fDays").innerHTML = [7,14,30].map(v =>
+    `<span class="chip ${days===v?"on":""}" data-days="${v}">${v} 天</span>`).join("");
+  document.querySelectorAll("[data-dom]").forEach(el => el.onclick = () => { fDomain = fDomain===el.dataset.dom?null:el.dataset.dom; curId=null; renderAll(); });
+  document.querySelectorAll("[data-star]").forEach(el => el.onclick = () => { fStar = +el.dataset.star; curId=null; renderAll(); });
+  document.querySelectorAll("[data-kind]").forEach(el => el.onclick = () => { fKind = fKind===el.dataset.kind?null:el.dataset.kind; curId=null; renderAll(); });
+  document.querySelectorAll("[data-days]").forEach(el => el.onclick = () => {
+    days = +el.dataset.days; put("wb_days", days); curId=null; loaded=false;
+    document.getElementById("view").innerHTML = `<div class="loading" id="loading">正在拉取学习载荷…</div>`;
+    load();
+  });
+  document.querySelectorAll("[data-view]").forEach(el => {
+    el.classList.toggle("on", view===el.dataset.view);
+    el.onclick = () => { view = view===el.dataset.view?null:el.dataset.view; curId=null; renderAll(); };
+  });
+  document.querySelectorAll("[data-mode]").forEach(el => {
+    el.classList.toggle("on", mode===el.dataset.mode);
+    el.onclick = () => { mode = el.dataset.mode; put("wb_mode", mode); renderAll(); };
+  });
+}
+
+function renderStat() {
+  const unread = DATA.filter(d => !state.read[d.id]).length;
+  const favs = Object.keys(state.fav).length;
+  document.getElementById("stat").innerHTML =
+    `未读 ${unread} · 收藏 ${favs}<br>4★+ ${DATA.filter(d=>d.stars>=4).length} 篇`;
+  document.getElementById("sub").textContent =
+    loaded ? `近 ${days} 天 · 共 ${DATA.length} 篇` : "加载中…";
+  if (!loaded) return;
+  const dayStart = new Date(); dayStart.setHours(0,0,0,0);
+  const today = DATA.filter(d => d.ts * 1000 >= dayStart.getTime()).length;
+  document.getElementById("metrics").innerHTML = `
+    <span class="metric"><b>${DATA.length}</b><span class="lbl">近 ${days} 天</span></span>
+    <span class="metric click ${view==="unread"?"on":""}" data-m="unread"><b>${unread}</b><span class="lbl">未读</span></span>
+    <span class="metric"><b>${DATA.length - unread}</b><span class="lbl">已读</span></span>
+    <span class="metric click ${view==="fav"?"on":""}" data-m="fav"><b>${favs}</b><span class="lbl">收藏</span></span>
+    <span class="metric star click ${fStar===4?"on":""}" data-m="stars"><b>${DATA.filter(d=>d.stars>=4).length}</b><span class="lbl">4★+</span></span>
+    <span class="metric"><b>+${today}</b><span class="lbl">今日新增</span></span>`;
+  document.querySelectorAll("[data-m]").forEach(el => el.onclick = () => {
+    const m = el.dataset.m;
+    if (m === "unread" || m === "fav") view = view === m ? null : m;
+    else if (m === "stars") fStar = fStar === 4 ? 0 : 4;
+    curId = null;
+    renderAll();
+  });
+}
+
+/* ---------- 列表模式 ---------- */
+function renderList() {
+  document.getElementById("view").innerHTML = `<div class="list" id="listEl"></div>`;
+  const el = document.getElementById("listEl");
+  el.innerHTML = rows.length ? rows.map(d => `
+    <div class="row ${state.read[d.id]?"read":""}" data-id="${d.id}">
+      <div class="star">${stars(d.stars)}</div>
+      <div class="body">
+        <div class="t">${state.fav[d.id]?'<span class="favdot">★ </span>':""}${d.title}</div>
+        <div class="s">${d.summary}</div>
+        <div class="tags">
+          <span class="tag ${d.kind}">${KIND[d.kind]}</span>
+          ${d.domains.map(x=>`<span class="tag">${x}</span>`).join("")}
+          <span>${fmtDate(d.ts)}${d.pipes.length? " · "+d.pipes[0]:""}${d.words? " · "+d.words+" 字":""}</span>
+        </div>
+      </div>
+    </div>`).join("") : `<div class="empty">没有匹配的文档</div>`;
+  el.querySelectorAll(".row").forEach(r => r.onclick = () => openDetail(+r.dataset.id));
+}
+
+function byline(d) {
+  return `${stars(d.stars)} · ${KIND[d.kind]}${d.article_kind? " · "+(d.article_kind==="tech"?"技术":"商业"):""} · ${fmtDate(d.ts)}` +
+    (d.author? " · "+d.author:"") + `<br>${d.domains.join(" / ")||"未分类"}` +
+    (d.pipes.length? " · 来源:"+d.pipes.join(", "):"");
+}
+
+function openDetail(id) {
+  const d = DATA.find(x => x.id === id);
+  const read = !!state.read[id], fav = !!state.fav[id];
+  document.getElementById("sheet").innerHTML = `
+    <h2>${d.title}</h2>
+    <div class="byline">${byline(d)}</div>
+    <div class="actions">
+      <a class="btn primary" href="${d.url}" target="_blank" rel="noopener" onclick="markRead(${id})">阅读原文 ↗</a>
+      <button class="btn" id="btnRead">${read? "标记未读":"标记已读"}</button>
+      <button class="btn fav ${fav?"on":""}" id="btnFav">${fav? "★ 已收藏":"☆ 收藏"}</button>
+    </div>
+    <h3>摘要</h3><div class="summary">${d.summary || "(无)"}</div>
+    ${d.keypoints.length? `<h3>要点</h3><ul>${d.keypoints.map(k=>`<li>${k}</li>`).join("")}</ul>`:""}`;
+  document.getElementById("detail").classList.add("open");
+  document.getElementById("btnRead").onclick = () => { setRead(id, !read); openDetail(id); renderList(); renderStat(); };
+  document.getElementById("btnFav").onclick = () => { setFav(id, !fav); openDetail(id); renderList(); renderStat(); };
+}
+document.getElementById("detail").onclick = e => {
+  if (e.target.id === "detail") e.target.classList.remove("open"); };
+
+/* ---------- 卡片流模式 ---------- */
+function pickStart() {
+  if (curId != null) { const i = rows.findIndex(d => d.id === curId); if (i >= 0) return i; }
+  const firstUnread = rows.findIndex(d => !state.read[d.id]);
+  return firstUnread >= 0 ? firstUnread : 0;
+}
+
+function renderStream() {
+  const view = document.getElementById("view");
+  if (!rows.length) {
+    view.innerHTML = `<div class="empty">当前过滤条件下没有文档<br><br>
+      <button class="btn" onclick="mode='list';put('wb_mode',mode);renderAll()">回列表模式</button></div>`;
+    return;
+  }
+  idx = Math.min(pickStart(), rows.length - 1);
+  drawCard();
+}
+
+function drawCard() {
+  const d = rows[idx];
+  curId = d.id; put("wb_cur", curId);
+  const fav = !!state.fav[d.id];
+  document.getElementById("view").innerHTML = `
+    <div class="progress"><i style="width:${((idx+1)/rows.length*100).toFixed(1)}%"></i></div>
+    <div class="stream card">
+      <div class="stars">${stars(d.stars)}</div>
+      <h2>${d.title}</h2>
+      <div class="byline">${byline(d)}${d.words? ` · ${d.words} 字`:""}</div>
+      <div class="summary">${d.summary || "(无摘要)"}</div>
+      ${d.keypoints.length? `<h3>要点</h3><ul>${d.keypoints.map(k=>`<li>${k}</li>`).join("")}</ul>`:""}
+      <div class="actions">
+        <a class="btn primary" href="${d.url}" target="_blank" rel="noopener" onclick="markRead(${d.id})">阅读原文 ↗</a>
+        <button class="btn fav ${fav?"on":""}" id="cFav">${fav? "★ 已收藏":"☆ 收藏"} <kbd>f</kbd></button>
+        <button class="btn" id="cUnread">${state.read[d.id]? "标记未读":"标记已读"}</button>
+      </div>
+    </div>
+    <div class="nav">
+      <button class="btn" id="navPrev" ${idx===0?"disabled":""}>← 上一篇</button>
+      <span class="pos">第 ${idx+1} / ${rows.length} 篇 · 翻过即已读</span>
+      <button class="btn primary" id="navNext" ${idx===rows.length-1?"disabled":""}>下一篇 →</button>
+    </div>`;
+  document.getElementById("navPrev").onclick = prevCard;
+  document.getElementById("navNext").onclick = nextCard;
+  document.getElementById("cFav").onclick = () => { setFav(d.id, !fav); drawCard(); renderStat(); };
+  document.getElementById("cUnread").onclick = () => { setRead(d.id, !state.read[d.id]); drawCard(); renderStat(); };
+  document.getElementById("main").scrollTop = 0;
+}
+
+function nextCard() {
+  if (idx < rows.length - 1) { markRead(rows[idx].id); idx++; drawCard(); renderStat(); }
+}
+function prevCard() {
+  if (idx > 0) { idx--; curId = rows[idx].id; put("wb_cur", curId); drawCard(); }
+}
+
+document.addEventListener("keydown", e => {
+  if (document.activeElement && document.activeElement.tagName === "INPUT") return;
+  if (document.getElementById("detail").classList.contains("open")) {
+    if (e.key === "Escape") document.getElementById("detail").classList.remove("open");
+    return;
+  }
+  if (mode !== "stream" || !loaded) return;
+  if (e.key === "ArrowRight" || e.key === "j") { e.preventDefault(); nextCard(); }
+  else if (e.key === "ArrowLeft" || e.key === "k") { e.preventDefault(); prevCard(); }
+  else if (e.key === "f" && idx >= 0) { setFav(rows[idx].id, !state.fav[rows[idx].id]); drawCard(); renderStat(); }
+});
+
+/* ---------- 总入口 ---------- */
+document.getElementById("q").oninput = e => { q = e.target.value; curId=null; renderAll(); };
+
+function renderAll() {
+  rows = filtered();
+  renderChips();
+  renderStat();
+  mode === "stream" ? renderStream() : renderList();
+}
+load();
+</script>
+</body>
+</html>
