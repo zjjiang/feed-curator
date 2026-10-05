@@ -4,6 +4,8 @@
 URL 提取结构化字段(字段留空待补全,见 design 决策 9)。
 """
 
+import time
+
 from sqlalchemy.orm import Session
 
 from app.models import Pipe
@@ -72,6 +74,7 @@ def save_url(db: Session, url: str, note: str | None = None) -> dict:
         detail=detail,
         pipe_id=pipe.id,
         external_id=normalized,
+        sort_time=int(time.time()),
     )
     return {
         "doc_id": result.doc_id,
