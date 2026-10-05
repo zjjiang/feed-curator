@@ -65,6 +65,19 @@
   .sheet .summary { font-size: 15px; }
   .sheet ul { margin: 6px 0; padding-left: 20px; }
   .sheet li { margin: 5px 0; font-size: 14.5px; }
+  /* ===== 指标 header ===== */
+  .metrics { display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+    padding: 10px 22px; border-bottom: 1px solid var(--line); background: var(--panel);
+    position: sticky; top: 0; z-index: 6; }
+  .metric { padding: 4px 14px; border: 1px solid var(--line); border-radius: 10px;
+    background: var(--bg); line-height: 1.3; }
+  .metric b { font-size: 19px; font-variant-numeric: tabular-nums; }
+  .metric .lbl { font-size: 11.5px; color: var(--ink2); margin-left: 6px; }
+  .metric.click { cursor: pointer; }
+  .metric.click:hover { border-color: var(--accent); }
+  .metric.click.on { background: var(--accent-soft); border-color: var(--accent); }
+  .metric.click.on .lbl { color: var(--accent); }
+  .metric.star b { color: var(--star); }
   /* ===== 卡片流模式 ===== */
   .stream { max-width: 720px; margin: 0 auto; padding: 34px 26px 110px; }
   .progress { height: 3px; background: var(--line); position: sticky; top: 0; z-index: 5; }
@@ -119,7 +132,7 @@
       <a href="/">← 返回订阅流</a> · 已读/收藏实时同步服务端
     </div>
   </aside>
-  <main id="main"><div class="loading" id="loading">正在拉取学习载荷…</div></main>
+  <main id="main"><div id="metrics"></div><div id="view"><div class="loading" id="loading">正在拉取学习载荷…</div></div></main>
 </div>
 <div id="detail"><div class="sheet" id="sheet"></div></div>
 <div id="toast"></div>
@@ -192,7 +205,8 @@ async function load() {
     loaded = true;
     renderAll();
   } catch (e) {
-    document.getElementById("loading").textContent = `载荷加载失败:${e.message}`;
+    const lv = document.getElementById("loading") || document.getElementById("view");
+    lv.textContent = `载荷加载失败:${e.message}`;
   }
 }
 
@@ -227,7 +241,7 @@ function renderChips() {
   document.querySelectorAll("[data-kind]").forEach(el => el.onclick = () => { fKind = fKind===el.dataset.kind?null:el.dataset.kind; curId=null; renderAll(); });
   document.querySelectorAll("[data-days]").forEach(el => el.onclick = () => {
     days = +el.dataset.days; put("wb_days", days); curId=null; loaded=false;
-    document.getElementById("main").innerHTML = `<div class="loading" id="loading">正在拉取学习载荷…</div>`;
+    document.getElementById("view").innerHTML = `<div class="loading" id="loading">正在拉取学习载荷…</div>`;
     load();
   });
   document.querySelectorAll("[data-view]").forEach(el => {
@@ -247,11 +261,28 @@ function renderStat() {
     `未读 ${unread} · 收藏 ${favs}<br>4★+ ${DATA.filter(d=>d.stars>=4).length} 篇`;
   document.getElementById("sub").textContent =
     loaded ? `近 ${days} 天 · 共 ${DATA.length} 篇` : "加载中…";
+  if (!loaded) return;
+  const dayStart = new Date(); dayStart.setHours(0,0,0,0);
+  const today = DATA.filter(d => d.ts * 1000 >= dayStart.getTime()).length;
+  document.getElementById("metrics").innerHTML = `
+    <span class="metric"><b>${DATA.length}</b><span class="lbl">近 ${days} 天</span></span>
+    <span class="metric click ${view==="unread"?"on":""}" data-m="unread"><b>${unread}</b><span class="lbl">未读</span></span>
+    <span class="metric"><b>${DATA.length - unread}</b><span class="lbl">已读</span></span>
+    <span class="metric click ${view==="fav"?"on":""}" data-m="fav"><b>${favs}</b><span class="lbl">收藏</span></span>
+    <span class="metric star click ${fStar===4?"on":""}" data-m="stars"><b>${DATA.filter(d=>d.stars>=4).length}</b><span class="lbl">4★+</span></span>
+    <span class="metric"><b>+${today}</b><span class="lbl">今日新增</span></span>`;
+  document.querySelectorAll("[data-m]").forEach(el => el.onclick = () => {
+    const m = el.dataset.m;
+    if (m === "unread" || m === "fav") view = view === m ? null : m;
+    else if (m === "stars") fStar = fStar === 4 ? 0 : 4;
+    curId = null;
+    renderAll();
+  });
 }
 
 /* ---------- 列表模式 ---------- */
 function renderList() {
-  document.getElementById("main").innerHTML = `<div class="list" id="listEl"></div>`;
+  document.getElementById("view").innerHTML = `<div class="list" id="listEl"></div>`;
   const el = document.getElementById("listEl");
   el.innerHTML = rows.length ? rows.map(d => `
     <div class="row ${state.read[d.id]?"read":""}" data-id="${d.id}">
@@ -303,9 +334,9 @@ function pickStart() {
 }
 
 function renderStream() {
-  const main = document.getElementById("main");
+  const view = document.getElementById("view");
   if (!rows.length) {
-    main.innerHTML = `<div class="empty">当前过滤条件下没有文档<br><br>
+    view.innerHTML = `<div class="empty">当前过滤条件下没有文档<br><br>
       <button class="btn" onclick="mode='list';put('wb_mode',mode);renderAll()">回列表模式</button></div>`;
     return;
   }
@@ -317,9 +348,7 @@ function drawCard() {
   const d = rows[idx];
   curId = d.id; put("wb_cur", curId);
   const fav = !!state.fav[d.id];
-  const rc = rows.filter(x => state.read[x.id]).length;
-  const fc = rows.filter(x => state.fav[x.id]).length;
-  document.getElementById("main").innerHTML = `
+  document.getElementById("view").innerHTML = `
     <div class="progress"><i style="width:${((idx+1)/rows.length*100).toFixed(1)}%"></i></div>
     <div class="stream card">
       <div class="stars">${stars(d.stars)}</div>
@@ -335,7 +364,7 @@ function drawCard() {
     </div>
     <div class="nav">
       <button class="btn" id="navPrev" ${idx===0?"disabled":""}>← 上一篇</button>
-      <span class="pos">第 ${idx+1} / ${rows.length} 篇 · 已读 <strong>${rc}</strong> · 收藏 <strong>${fc}</strong></span>
+      <span class="pos">第 ${idx+1} / ${rows.length} 篇 · 翻过即已读</span>
       <button class="btn primary" id="navNext" ${idx===rows.length-1?"disabled":""}>下一篇 →</button>
     </div>`;
   document.getElementById("navPrev").onclick = prevCard;
