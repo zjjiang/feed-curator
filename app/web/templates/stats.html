@@ -1,0 +1,73 @@
+{% extends "layout.html" %}
+{% block title %}统计 · 管理后台 · feed-curator{% endblock %}
+{% block body %}
+<div class="card filters">
+  {% for d in presets %}
+  <a class="btn" href="/admin/stats?days={{ d }}">{{ d }} 天</a>
+  {% endfor %}
+  <form class="inline" method="get" action="/admin/stats" style="display:flex;gap:6px;align-items:center">
+    <input type="text" name="start" placeholder="{{ start_date }}" value="{{ start_date if days is none or days == '' else '' }}" style="width:120px">
+    <span class="muted">~</span>
+    <input type="text" name="end" placeholder="{{ end_date }}" value="{{ end_date if days is none or days == '' else '' }}" style="width:120px">
+    <button>查</button>
+  </form>
+  <span class="muted">范围 {{ start_date }} ~ {{ end_date }};渠道/领域按归属重复计数,加总可大于日总览。</span>
+</div>
+
+<h2>每日总览</h2>
+<table>
+<tr><th>日期</th><th>入库</th><th>论文</th><th>项目</th><th>文章</th>
+    <th>分析 ok</th><th>已读</th><th>收藏</th><th>AI≥4星</th></tr>
+{% for r in data.daily %}
+<tr {% if loop.first %}style="font-weight:600"{% endif %}>
+  <td>{{ r.date }}</td>
+  <td>{{ r.ingested }}</td>
+  <td class="muted">{{ r.papers }}</td>
+  <td class="muted">{{ r.repos }}</td>
+  <td class="muted">{{ r.articles }}</td>
+  <td>{{ r.analyzed }}</td>
+  <td>{{ r.read }}</td>
+  <td>{{ r.favorited }}</td>
+  <td>{{ r.ai_high }}</td>
+</tr>
+{% else %}
+<tr><td colspan="9" class="muted">范围内无数据</td></tr>
+{% endfor %}
+</table>
+
+<h2>渠道转化</h2>
+<table>
+<tr><th>渠道</th><th>入库</th><th>分析 ok</th><th>已读</th><th>收藏</th><th>AI≥4星</th><th>已读率</th></tr>
+{% for p in data.pipes %}
+<tr>
+  <td>{{ p.name }}</td>
+  <td>{{ p.ingested }}</td>
+  <td>{{ p.analyzed }}</td>
+  <td>{{ p.read }}</td>
+  <td>{{ p.favorited }}</td>
+  <td>{{ p.ai_high }}</td>
+  <td class="muted">{{ p.read_rate }}%</td>
+</tr>
+{% else %}
+<tr><td colspan="7" class="muted">范围内无数据</td></tr>
+{% endfor %}
+</table>
+
+<h2>领域转化</h2>
+<table>
+<tr><th>领域</th><th>入库</th><th>分析 ok</th><th>已读</th><th>收藏</th><th>AI≥4星</th><th>已读率</th></tr>
+{% for d in data.domains %}
+<tr>
+  <td>{{ d.name }}</td>
+  <td>{{ d.ingested }}</td>
+  <td>{{ d.analyzed }}</td>
+  <td>{{ d.read }}</td>
+  <td>{{ d.favorited }}</td>
+  <td>{{ d.ai_high }}</td>
+  <td class="muted">{{ d.read_rate }}%</td>
+</tr>
+{% else %}
+<tr><td colspan="7" class="muted">范围内无数据</td></tr>
+{% endfor %}
+</table>
+{% endblock %}

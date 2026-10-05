@@ -19,6 +19,7 @@ from app.db import get_session
 from app.jobs.fetcher import fetch_source
 from app.models import (Analysis, Article, Doc, Domain, Membership, Pipe,
                         Reading, Repo, RunLog)
+from app.services.stats_service import PRESET_DAYS, collect_stats, parse_window
 from app.utils.json_str import json_dump
 
 templates = Jinja2Templates(directory="app/web/templates")
@@ -494,7 +495,25 @@ def trigger_readme_backfill(db: Session = Depends(get_session)):
     return RedirectResponse("/admin?msg=readme_started", status_code=303)
 
 
-# ============ 管理后台 ============
+# ============ 管理后台:统计 ============
+
+
+@router.get("/admin/stats", response_class=HTMLResponse)
+def stats_page(request: Request, days: str | None = None, start: str | None = None,
+               end: str | None = None, db: Session = Depends(get_session)):
+    start_ts, end_ts = parse_window(days, start, end)
+    data = collect_stats(db, start_ts, end_ts)
+    from datetime import date as _date
+
+    start_date = _date.fromtimestamp(start_ts).isoformat()
+    end_date = _date.fromtimestamp(end_ts - 1).isoformat()
+    return templates.TemplateResponse(request, "stats.html", {
+        "data": data,
+        "presets": PRESET_DAYS,
+        "days": days,
+        "start_date": start_date,
+        "end_date": end_date,
+    })
 
 
 @router.get("/admin", response_class=HTMLResponse)
