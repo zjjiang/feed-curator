@@ -317,6 +317,8 @@ function drawCard() {
   const d = rows[idx];
   curId = d.id; put("wb_cur", curId);
   const fav = !!state.fav[d.id];
+  const rc = rows.filter(x => state.read[x.id]).length;
+  const fc = rows.filter(x => state.fav[x.id]).length;
   document.getElementById("main").innerHTML = `
     <div class="progress"><i style="width:${((idx+1)/rows.length*100).toFixed(1)}%"></i></div>
     <div class="stream card">
@@ -333,7 +335,7 @@ function drawCard() {
     </div>
     <div class="nav">
       <button class="btn" id="navPrev" ${idx===0?"disabled":""}>← 上一篇</button>
-      <span class="pos">${idx+1} / ${rows.length} · 翻过即已读</span>
+      <span class="pos">第 ${idx+1} / ${rows.length} 篇 · 已读 <strong>${rc}</strong> · 收藏 <strong>${fc}</strong></span>
       <button class="btn primary" id="navNext" ${idx===rows.length-1?"disabled":""}>下一篇 →</button>
     </div>`;
   document.getElementById("navPrev").onclick = prevCard;
