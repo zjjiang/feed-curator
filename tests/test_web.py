@@ -319,3 +319,20 @@ class TestGithubPipeForm:
             "type": "github", "name": "x", "config": {},
             "fetch_interval_min": 30, "domain_id": None})
         assert resp.status_code == 400
+
+
+class TestStatsPage:
+    def test_stats_renders_three_tables_and_nav(self, client, db_session):
+        _doc(db_session, url="https://example.com/s1", stars=5)
+        html = client.get("/admin/stats").text
+        assert "每日总览" in html and "渠道转化" in html and "领域转化" in html
+        assert 'href="/admin/stats"' in html          # 导航入口
+        assert 'href="/admin/stats?days=7"' in html   # 预设切换
+
+    def test_stats_bad_days_falls_back(self, client, db_session):
+        html = client.get("/admin/stats?days=abc").text
+        assert "每日总览" in html
+
+    def test_stats_custom_range_empty(self, client, db_session):
+        html = client.get("/admin/stats?start=2020-01-01&end=2020-01-02").text
+        assert "范围内无数据" in html
