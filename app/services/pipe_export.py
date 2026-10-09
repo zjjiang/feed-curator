@@ -17,18 +17,47 @@ from app.db import SessionLocal
 from app.models import Domain, Pipe, RunLog
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-EXPORT_REL = "docs/pipes.md"
+EXPORT_FILES = ("docs/pipes.md", "docs/pipes.json")
 AUTO_INTERVAL = 86400
+JSON_VERSION = 1
 
-TYPE_ORDER = ("rss", "arxiv", "github", "hf_papers", "wechat", "manual")
-TYPE_LABELS = {
-    "rss": "RSS 订阅",
-    "arxiv": "arXiv 论文",
-    "github": "GitHub 仓库",
-    "hf_papers": "HuggingFace 论文",
-    "wechat": "微信公众号",
-    "manual": "手工存入",
-}
+# 内容大类:有序规则,先命中先归类;rss 兜底科技媒体。
+# pipe.type 是接入方式不是内容类别(论文源多是 rss),故按 URL/名称匹配。
+_CATEGORY_RULES = (
+    ("论文与研究",
+     lambda u, n: any(k in u for k in ("arxiv", "daily-papers", "papers"))
+     or any(k in n for k in ("论文", "Research", "DeepMind", "BAIR"))),
+    ("厂商官方",
+     lambda u, n: any(k in u for k in ("openai.com", "anthropic.com",
+                                       "huggingface.co"))
+     or any(k in n for k in ("OpenAI", "Anthropic", "HuggingFace"))),
+    ("开发者与独立博客",
+     lambda u, n: any(k in u for k in ("hackernews", "lobste.rs", "github",
+                                       "simonwillison"))),
+)
+DEFAULT_RSS_CATEGORY = "科技媒体"
+WECHAT_CATEGORY = "微信公众号"
+MANUAL_CATEGORY = "手工存入"
+
+
+def _category_of(pipe: Pipe) -> str:
+    override = _safe_config(pipe).get("export_category")
+    if override:
+        return override
+    if pipe.type == "manual":
+        return MANUAL_CATEGORY
+    if pipe.type == "wechat":
+        return WECHAT_CATEGORY
+    if pipe.type in ("arxiv", "hf_papers"):
+        return "论文与研究"
+    if pipe.type == "github":
+        return "开发者与独立博客"
+    url = _config_summary(pipe)
+    for label, match in _CATEGORY_RULES:
+        if match(url, pipe.name):
+            return label
+    return DEFAULT_RSS_CATEGORY
+
 
 _EXPORT_LOCK = threading.Lock()
 
@@ -38,29 +67,30 @@ class ExportError(RuntimeError):
 
 
 def render_pipes_md(db: Session, now: int | None = None) -> str:
-    """按平台类型分大类的订阅源 Markdown;config 只出摘要字段,不泄漏完整 JSON。"""
+    """按内容大类分组的订阅源 Markdown;config 只出摘要字段,不泄漏完整 JSON。"""
     now_ts = now if now is not None else int(time.time())
     domains = {d.id: d.name for d in db.query(Domain).all()}
     pipes = db.query(Pipe).all()
 
     groups: dict[str, list[Pipe]] = {}
     for p in pipes:
-        groups.setdefault(p.type, []).append(p)
+        groups.setdefault(_category_of(p), []).append(p)
 
     enabled = sum(1 for p in pipes if p.enabled)
     lines = [
         "# feed-curator 订阅源清单",
         "",
         f"> 生成时间 {datetime.fromtimestamp(now_ts).strftime('%Y-%m-%d %H:%M')}"
-        f" · 共 {len(pipes)} 个源(启用 {enabled})",
+        f" · 共 {len(pipes)} 个源(启用 {enabled})"
+        f" · 机器可读版 [pipes.json](pipes.json)",
         "",
     ]
-    for type_ in TYPE_ORDER:
-        plist = groups.get(type_)
+    for label in CATEGORY_ORDER:
+        plist = groups.get(label)
         if not plist:
             continue
         lines += [
-            f"## {TYPE_LABELS[type_]}({len(plist)})",
+            f"## {label}({len(plist)})",
             "",
             "| 名称 | 领域 | 状态 | 间隔 | 最近拉取 | 地址/查询 |",
             "|---|---|---|---|---|---|",
@@ -73,6 +103,41 @@ def render_pipes_md(db: Session, now: int | None = None) -> str:
                 f" | {_fmt_ts(p.last_fetched_at)} | {_config_summary(p)} |")
         lines.append("")
     return "\n".join(lines) + "\n"
+
+
+CATEGORY_ORDER = ("论文与研究", "厂商官方", "开发者与独立博客", "科技媒体",
+                  "微信公众号", "手工存入")
+
+
+def build_pipes_json(db: Session, now: int | None = None) -> str:
+    """交换格式:导出生成它,导入消费它;domain 存名字以跨库迁移。"""
+    now_ts = now if now is not None else int(time.time())
+    domains = {d.id: d.name for d in db.query(Domain).all()}
+    pipes = db.query(Pipe).order_by(Pipe.type, Pipe.name).all()
+    data = {
+        "version": JSON_VERSION,
+        "exported_at": now_ts,
+        "pipes": [
+            {
+                "type": p.type,
+                "name": p.name,
+                "config": _safe_config(p),
+                "domain": domains.get(p.domain_id) if p.domain_id else None,
+                "enabled": p.enabled,
+                "fetch_interval_min": p.fetch_interval_min,
+            }
+            for p in pipes
+        ],
+    }
+    return json.dumps(data, ensure_ascii=False, indent=2) + "\n"
+
+
+def _safe_config(pipe: Pipe) -> dict:
+    try:
+        cfg = json.loads(pipe.config) if pipe.config else {}
+    except (ValueError, TypeError):
+        cfg = {}
+    return cfg if isinstance(cfg, dict) else {}
 
 
 def _config_summary(pipe: Pipe) -> str:
@@ -123,11 +188,15 @@ def run_export(db: Session, trigger: str = "manual") -> None:
             db.commit()
             return
 
-        path = REPO_ROOT / EXPORT_REL
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(render_pipes_md(db), encoding="utf-8")
-        _git(["add", EXPORT_REL])
-        if _git(["diff", "--cached", "--quiet", "--", EXPORT_REL],
+        for rel_path, content in (
+            (EXPORT_FILES[0], render_pipes_md(db)),
+            (EXPORT_FILES[1], build_pipes_json(db)),
+        ):
+            path = REPO_ROOT / rel_path
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+        _git(["add", *EXPORT_FILES])
+        if _git(["diff", "--cached", "--quiet", "--", *EXPORT_FILES],
                 check=False).returncode == 0:
             log.status = "done"
             log.error = "内容无变化,跳过提交"

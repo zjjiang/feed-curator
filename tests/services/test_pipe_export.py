@@ -48,11 +48,14 @@ def six_types(db_session):
 
 
 class TestRenderPipesMd:
-    def test_six_type_groups(self, db_session, six_types):
+    def test_content_groups(self, db_session, six_types):
+        """六根管道按内容大类落组:arxiv/hf→论文,github→社区,rss→媒体。"""
         md = render_pipes_md(db_session, now=NOW)
-        for label in ("RSS 订阅", "arXiv 论文", "GitHub 仓库",
-                      "HuggingFace 论文", "微信公众号", "手工存入"):
-            assert f"## {label}" in md
+        assert "cs.AI" in md.split("## 论文与研究")[1].split("##")[0]
+        assert "HF 每日" in md.split("## 论文与研究")[1].split("##")[0]
+        assert "gh-LLM" in md.split("## 开发者与独立博客")[1].split("##")[0]
+        assert "少数派" in md.split("## 科技媒体")[1].split("##")[0]
+        assert "机器之心" in md.split("## 微信公众号")[1].split("##")[0]
 
     def test_header_time_and_total(self, db_session, six_types):
         md = render_pipes_md(db_session, now=NOW)
@@ -80,7 +83,7 @@ class TestRenderPipesMd:
         _pipe(db_session, "rss", "唯一", {"feed_url": "https://a.com/f"})
         db_session.commit()
         md = render_pipes_md(db_session, now=NOW)
-        assert "## RSS 订阅" in md
+        assert "## 科技媒体" in md
         assert "微信公众号" not in md and "手工存入" not in md
 
     def test_empty_db_renders_header_only(self, db_session):
@@ -213,3 +216,77 @@ class TestRunExport:
             assert pe.maybe_start_export(trigger="manual") is False
         finally:
             pe._EXPORT_LOCK.release()
+
+
+# ============ 内容大类(JSON/分类扩展后) ============
+
+
+class TestContentCategories:
+    def test_paper_sources_not_buried(self, db_session):
+        _pipe(db_session, "rss", "HuggingFace 每日论文",
+              {"feed_url": "http://127.0.0.1:9002/huggingface/daily-papers"})
+        _pipe(db_session, "rss", "BAIR Berkeley",
+              {"feed_url": "https://bair.berkeley.edu/blog/feed.xml"})
+        db_session.commit()
+        md = render_pipes_md(db_session, now=NOW)
+        assert "## 论文与研究" in md
+        # 不再落回科技媒体
+        papers = md.split("## 论文与研究")[1].split("##")[0]
+        assert "HuggingFace 每日论文" in papers and "BAIR" in papers
+
+    def test_category_order_and_defaults(self, db_session):
+        _pipe(db_session, "rss", "OpenAI News", {"feed_url": "https://openai.com/news/rss.xml"})
+        _pipe(db_session, "rss", "HuggingFace Blog", {"feed_url": "https://huggingface.co/blog/feed.xml"})
+        _pipe(db_session, "rss", "Hacker News 最佳", {"feed_url": "http://127.0.0.1:9002/hackernews/best"})
+        _pipe(db_session, "rss", "Simon Willison", {"feed_url": "https://simonwillison.net/atom/everything/"})
+        _pipe(db_session, "rss", "36氪", {"feed_url": "http://127.0.0.1:9002/36kr/news/latest"})
+        _pipe(db_session, "wechat", "机器之心", {"mp_id": "x"})
+        db_session.commit()
+        md = render_pipes_md(db_session, now=NOW)
+        assert "## 厂商官方" in md and "OpenAI News" in md.split("## 厂商官方")[1].split("##")[0]
+        assert "HuggingFace Blog" in md.split("## 厂商官方")[1].split("##")[0]
+        assert "## 开发者与独立博客" in md
+        dev = md.split("## 开发者与独立博客")[1].split("##")[0]
+        assert "Hacker News" in dev and "Simon Willison" in dev
+        media = md.split("## 科技媒体")[1].split("##")[0]
+        assert "36氪" in media
+        assert "机器之心" in md.split("## 微信公众号")[1].split("##")[0]
+
+    def test_config_category_overrides_rules(self, db_session):
+        _pipe(db_session, "rss", "自定义源", {"feed_url": "https://x.com/f", "export_category": "论文与研究"})
+        db_session.commit()
+        md = render_pipes_md(db_session, now=NOW)
+        assert "自定义源" in md.split("## 论文与研究")[1].split("##")[0]
+
+    def test_research_blogs_in_paper_group(self, db_session):
+        for name in ("Google Research", "DeepMind", "Microsoft Research"):
+            _pipe(db_session, "rss", name, {"feed_url": f"https://{name}.com/rss"})
+        db_session.commit()
+        md = render_pipes_md(db_session, now=NOW)
+        papers = md.split("## 论文与研究")[1].split("##")[0]
+        assert all(n in papers for n in ("Google Research", "DeepMind", "Microsoft Research"))
+
+
+# ============ pipes.json 构建 ============
+
+
+class TestBuildPipesJson:
+    def test_structure_and_roundtrip_fields(self, db_session, six_types):
+        from app.services.pipe_export import build_pipes_json
+
+        data = json.loads(build_pipes_json(db_session, now=NOW))
+        assert data["version"] == 1 and data["exported_at"] == NOW
+        assert len(data["pipes"]) == 7
+        gh_derived = next(p for p in data["pipes"] if p["name"] == "gh-LLM")
+        assert gh_derived["domain"] == "LLM"          # 名字而非 id
+        assert gh_derived["type"] == "github"
+        wx = next(p for p in data["pipes"] if p["type"] == "wechat")
+        assert wx["config"]["mp_id"] == "xyz"          # 完整 config
+        assert set(data["pipes"][0]) == {"type", "name", "config", "domain",
+                                         "enabled", "fetch_interval_min"}
+
+    def test_empty_db(self, db_session):
+        from app.services.pipe_export import build_pipes_json
+
+        data = json.loads(build_pipes_json(db_session, now=NOW))
+        assert data["pipes"] == []

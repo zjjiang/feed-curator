@@ -1,5 +1,6 @@
 import json
 import time
+import urllib.parse
 
 import pytest
 from fastapi.testclient import TestClient
@@ -360,3 +361,24 @@ class TestPipeBatchAndExportRoutes:
                             lambda trigger="manual": True)
         r = client.post("/admin/pipes/export", follow_redirects=False)
         assert r.status_code == 303 and "export_started" in r.headers["location"]
+
+
+class TestPipeImportRoute:
+    def test_import_creates_and_reports(self, client, db_session):
+        payload = json.dumps({"pipes": [
+            {"type": "rss", "name": "导入源", "config": {"feed_url": "https://i.com/f"}}]},
+            ensure_ascii=False)
+        r = client.post("/admin/pipes/import", data={"payload": payload},
+                        follow_redirects=False)
+        loc = r.headers["location"]
+        assert r.status_code == 303 and "imported=" in loc
+        result = json.loads(urllib.parse.unquote(loc.split("imported=")[1]))
+        assert result["imported"] == 1
+        # 页面渲染结果
+        html = client.get(loc, follow_redirects=True).text
+        assert "导入完成:新增 1 个" in html
+
+    def test_import_invalid_json_errors(self, client, db_session):
+        r = client.post("/admin/pipes/import", data={"payload": "not json"},
+                        follow_redirects=False)
+        assert r.status_code == 303 and "error=import" in r.headers["location"]

@@ -21,3 +21,13 @@
 - [x] 4.1 `uv run pytest` 全绿,覆盖率 ≥ 80%
 - [ ] 4.2 本地实测:导出按钮真实 push 一次,检查 GitHub 上 docs/pipes.md 渲染与内容正确
 - [x] 4.3 实测批量拉取:选 3 根管道更新,确认 run_log 三条、busy/空选择路径正常
+
+## 5. 内容分类 + JSON 交换格式(评审后扩展)
+
+- [x] 5.1 写失败用例:内容大类规则(论文源不埋没、厂商/社区/媒体/公众号/手工各自归类、config category 覆盖、规则顺序)
+- [x] 5.2 写失败用例:pipes.json 构建(version/exported_at/pipes 数组、domain 存名字、round-trip 可导入)
+- [x] 5.3 实现分类规则 + build_pipes_json,run_export 改为双文件(docs/pipes.md + docs/pipes.json)提交推送
+- [x] 5.4 写失败用例:导入(合法 JSON 创建、type+name 去重、未知领域跳过、非法 JSON 拒绝且零写入、裸数组兼容)
+- [x] 5.5 实现 `app/services/pipe_import.py`(边界校验 + 去重 + create_pipe)
+- [x] 5.6 POST /admin/pipes/import 路由 + pipes.html 导入表单(粘贴 JSON);更新导出相关测试
+- [x] 5.7 全量测试 + 真实重导出(双文件推送,GitHub 确认 JSON 可下载且分类正确)

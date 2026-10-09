@@ -41,6 +41,7 @@ def _fmt_time(ts: int | None) -> str:
 
 
 templates.env.filters["fmt_time"] = _fmt_time
+templates.env.filters["from_json"] = json.loads
 
 
 # 旧路径重定向(书签兼容)
@@ -427,6 +428,24 @@ async def batch_fetch_page(request: Request, db: Session = Depends(get_session))
     msg = {"started": "batch_started", "busy": "batch_busy",
            "empty": "batch_empty"}[result]
     return RedirectResponse(f"/admin/pipes?msg={msg}", status_code=303)
+
+
+@router.post("/admin/pipes/import")
+async def import_pipes_page(request: Request, db: Session = Depends(get_session)):
+    """粘贴 pipes.json 导入管道:校验、去重,报告导入/跳过数。"""
+    from app.services.pipe_import import import_pipes
+
+    form = await request.form()
+    raw = (form.get("payload") or "").strip()
+    try:
+        out = import_pipes(db, raw)
+    except ValueError as e:
+        from urllib.parse import quote
+        return RedirectResponse(
+            f"/admin/pipes?error=import&msg={quote(str(e))}", status_code=303)
+    from urllib.parse import quote
+    detail = quote(json_dump(out))
+    return RedirectResponse(f"/admin/pipes?imported={detail}", status_code=303)
 
 
 @router.post("/admin/pipes/export")
