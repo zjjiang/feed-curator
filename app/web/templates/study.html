@@ -145,7 +145,7 @@ let state = { read: ls("wb_read", {}), fav: ls("wb_fav", {}) };   // 乐观镜�
 let mode = ls("wb_mode", "stream");
 let days = ls("wb_days", 7);
 let curId = ls("wb_cur", null);
-let fDomain = null, fStar = 0, fKind = null, view = null, q = "";
+let fDomain = null, fStar = ls("wb_fstar", 4), fKind = null, view = null, q = "";   // 默认只看 4★+,选择记住
 let rows = [], idx = -1, loaded = false;
 const stars = n => n ? "★".repeat(n) + "☆".repeat(5 - n) : "未评";
 const fmtDate = ts => { const d = new Date(ts * 1000);
@@ -237,7 +237,7 @@ function renderChips() {
   document.getElementById("fDays").innerHTML = [7,14,30].map(v =>
     `<span class="chip ${days===v?"on":""}" data-days="${v}">${v} 天</span>`).join("");
   document.querySelectorAll("[data-dom]").forEach(el => el.onclick = () => { fDomain = fDomain===el.dataset.dom?null:el.dataset.dom; curId=null; renderAll(); });
-  document.querySelectorAll("[data-star]").forEach(el => el.onclick = () => { fStar = +el.dataset.star; curId=null; renderAll(); });
+  document.querySelectorAll("[data-star]").forEach(el => el.onclick = () => { fStar = +el.dataset.star; put("wb_fstar", fStar); curId=null; renderAll(); });
   document.querySelectorAll("[data-kind]").forEach(el => el.onclick = () => { fKind = fKind===el.dataset.kind?null:el.dataset.kind; curId=null; renderAll(); });
   document.querySelectorAll("[data-days]").forEach(el => el.onclick = () => {
     days = +el.dataset.days; put("wb_days", days); curId=null; loaded=false;
@@ -274,7 +274,7 @@ function renderStat() {
   document.querySelectorAll("[data-m]").forEach(el => el.onclick = () => {
     const m = el.dataset.m;
     if (m === "unread" || m === "fav") view = view === m ? null : m;
-    else if (m === "stars") fStar = fStar === 4 ? 0 : 4;
+    else if (m === "stars") { fStar = fStar === 4 ? 0 : 4; put("wb_fstar", fStar); }
     curId = null;
     renderAll();
   });
