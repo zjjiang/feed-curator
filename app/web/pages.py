@@ -416,6 +416,29 @@ async def add_pipe_page(request: Request, db: Session = Depends(get_session)):
     return RedirectResponse("/admin/pipes", status_code=303)
 
 
+@router.post("/admin/pipes/batch-fetch")
+async def batch_fetch_page(request: Request, db: Session = Depends(get_session)):
+    """批量更新选中管道(类似 yum update):后台线程顺序拉取。"""
+    from app.services.pipe_batch import start_batch_fetch
+
+    form = await request.form()
+    ids = form.getlist("ids")
+    result = start_batch_fetch(ids)
+    msg = {"started": "batch_started", "busy": "batch_busy",
+           "empty": "batch_empty"}[result]
+    return RedirectResponse(f"/admin/pipes?msg={msg}", status_code=303)
+
+
+@router.post("/admin/pipes/export")
+def export_pipes_page():
+    """手动导出订阅源清单到 GitHub(main 分支才推送)。"""
+    from app.services.pipe_export import maybe_start_export
+
+    started = maybe_start_export(trigger="manual")
+    msg = "export_started" if started else "export_busy"
+    return RedirectResponse(f"/admin?msg={msg}", status_code=303)
+
+
 @router.post("/admin/pipes/{pipe_id}/toggle")
 def toggle_pipe_page(pipe_id: int, db: Session = Depends(get_session)):
     pipe = db.get(Pipe, pipe_id)

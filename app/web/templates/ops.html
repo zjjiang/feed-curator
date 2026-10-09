@@ -12,7 +12,7 @@
 </div>
 
 {% set kind_labels = {'fetch':'采集','analyze':'AI 判定','fulltext':'正文补全','refresh':'星标刷新','readme':'README 补全'} %}
-{% set msgs = {'refresh_started':'星标刷新已启动,进度见最近运行','refresh_busy':'已有星标刷新在运行','readme_started':'README 补抓已开始(50 个/批)','readme_busy':'已有 README 补抓在运行'} %}
+{% set msgs = {'refresh_started':'星标刷新已启动,进度见最近运行','refresh_busy':'已有星标刷新在运行','readme_started':'README 补抓已开始(50 个/批)','readme_busy':'已有 README 补抓在运行','export_started':'源清单导出已开始,推送结果见最近运行(kind=export)','export_busy':'已有导出在执行'} %}
 {% if request.query_params.get('msg') in msgs %}
 <div class="card muted">{{ msgs[request.query_params.get('msg')] }}</div>
 {% endif %}
@@ -45,6 +45,9 @@
   </form>
   <form class="inline" method="post" action="/admin/repos/readme">
     <button>补抓 README</button>
+  </form>
+  <form class="inline" method="post" action="/admin/pipes/export">
+    <button>导出源清单到 GitHub</button>
   </form>
   <span class="muted">判定需要配置 DEEPSEEK_API_KEY;补全与补抓限速 1 秒/篇。</span>
 </div>

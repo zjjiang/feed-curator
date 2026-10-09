@@ -336,3 +336,27 @@ class TestStatsPage:
     def test_stats_custom_range_empty(self, client, db_session):
         html = client.get("/admin/stats?start=2020-01-01&end=2020-01-02").text
         assert "范围内无数据" in html
+
+
+class TestPipeBatchAndExportRoutes:
+    def test_batch_fetch_empty_rejected(self, client, db_session):
+        r = client.post("/admin/pipes/batch-fetch", data={}, follow_redirects=False)
+        assert r.status_code == 303 and "batch_empty" in r.headers["location"]
+
+    def test_batch_fetch_starts(self, client, db_session, monkeypatch):
+        import threading
+
+        from app.services import pipe_batch
+        started = threading.Event()
+        monkeypatch.setattr(pipe_batch, "run_batch_fetch",
+                            lambda ids: started.set() or {"ok": len(ids), "failed": 0})
+        r = client.post("/admin/pipes/batch-fetch", data={"ids": "1"}, follow_redirects=False)
+        assert r.status_code == 303 and "batch_started" in r.headers["location"]
+        assert started.wait(timeout=5)
+
+    def test_export_route_starts(self, client, db_session, monkeypatch):
+        from app.services import pipe_export
+        monkeypatch.setattr(pipe_export, "maybe_start_export",
+                            lambda trigger="manual": True)
+        r = client.post("/admin/pipes/export", follow_redirects=False)
+        assert r.status_code == 303 and "export_started" in r.headers["location"]
