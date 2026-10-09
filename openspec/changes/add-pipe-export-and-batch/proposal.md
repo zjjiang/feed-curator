@@ -26,5 +26,5 @@
 
 - 新增 `app/services/pipe_export.py`(分类规则 + md/JSON 生成 + git 推送)、`app/services/pipe_batch.py`(批量拉取)、`app/services/pipe_import.py`(导入)。
 - 修改 `app/web/pages.py`、`app/web/templates/pipes.html`(复选框、批量、导入表单)、`app/web/templates/ops.html`、`app/main.py`(fetch tick 每日导出)。
-- 仓库新增 `docs/pipes.md` 与 `docs/pipes.json`;源名、feed 地址等公开信息将出现在 GitHub(仓库 public,功能预期)。
+- 仓库新增 `docs/pipes.json`(每条带内容大类);源名、feed 地址等公开信息将出现在 GitHub(仓库 public,功能预期)。
 - 无 schema 变更(分类覆盖复用 config JSON 列)、无新依赖。

@@ -1,7 +1,9 @@
-"""订阅源清单导出:按平台类型分大类生成 Markdown,提交并 push 到 GitHub。
+"""订阅源清单导出:生成机器可读的 pipes.json,提交并 push 到 GitHub。
 
-生成是纯读;推送只操作 docs/pipes.md 一个文件,无变化跳过提交,
-非 main 分支跳过导出。失败记 run_log(kind='export'),不影响主流程。
+JSON 是导出/导入的通用交换格式(导入见 pipe_import);内容大类规则
+见 _category_of。生成是纯读;推送只操作 docs/pipes.json 一个文件,
+无变化跳过提交,非 main 分支跳过导出。失败记 run_log(kind='export'),
+不影响主流程。
 """
 
 import json
@@ -17,7 +19,7 @@ from app.db import SessionLocal
 from app.models import Domain, Pipe, RunLog
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-EXPORT_FILES = ("docs/pipes.md", "docs/pipes.json")
+EXPORT_FILE = "docs/pipes.json"
 AUTO_INTERVAL = 86400
 JSON_VERSION = 1
 
@@ -66,51 +68,11 @@ class ExportError(RuntimeError):
     pass
 
 
-def render_pipes_md(db: Session, now: int | None = None) -> str:
-    """按内容大类分组的订阅源 Markdown;config 只出摘要字段,不泄漏完整 JSON。"""
-    now_ts = now if now is not None else int(time.time())
-    domains = {d.id: d.name for d in db.query(Domain).all()}
-    pipes = db.query(Pipe).all()
-
-    groups: dict[str, list[Pipe]] = {}
-    for p in pipes:
-        groups.setdefault(_category_of(p), []).append(p)
-
-    enabled = sum(1 for p in pipes if p.enabled)
-    lines = [
-        "# feed-curator 订阅源清单",
-        "",
-        f"> 生成时间 {datetime.fromtimestamp(now_ts).strftime('%Y-%m-%d %H:%M')}"
-        f" · 共 {len(pipes)} 个源(启用 {enabled})"
-        f" · 机器可读版 [pipes.json](pipes.json)",
-        "",
-    ]
-    for label in CATEGORY_ORDER:
-        plist = groups.get(label)
-        if not plist:
-            continue
-        lines += [
-            f"## {label}({len(plist)})",
-            "",
-            "| 名称 | 领域 | 状态 | 间隔 | 最近拉取 | 地址/查询 |",
-            "|---|---|---|---|---|---|",
-        ]
-        for p in sorted(plist, key=lambda x: x.name):
-            domain = domains.get(p.domain_id, "共享") if p.domain_id else "共享"
-            status = "启用" if p.enabled else "停用"
-            lines.append(
-                f"| {p.name} | {domain} | {status} | {p.fetch_interval_min}min"
-                f" | {_fmt_ts(p.last_fetched_at)} | {_config_summary(p)} |")
-        lines.append("")
-    return "\n".join(lines) + "\n"
-
-
-CATEGORY_ORDER = ("论文与研究", "厂商官方", "开发者与独立博客", "科技媒体",
-                  "微信公众号", "手工存入")
-
-
 def build_pipes_json(db: Session, now: int | None = None) -> str:
-    """交换格式:导出生成它,导入消费它;domain 存名字以跨库迁移。"""
+    """交换格式:导出生成它,导入消费它;domain 存名字以跨库迁移。
+
+    category 为内容大类(论文与研究/厂商官方/...),规则见 _category_of。
+    """
     now_ts = now if now is not None else int(time.time())
     domains = {d.id: d.name for d in db.query(Domain).all()}
     pipes = db.query(Pipe).order_by(Pipe.type, Pipe.name).all()
@@ -125,6 +87,7 @@ def build_pipes_json(db: Session, now: int | None = None) -> str:
                 "domain": domains.get(p.domain_id) if p.domain_id else None,
                 "enabled": p.enabled,
                 "fetch_interval_min": p.fetch_interval_min,
+                "category": _category_of(p),
             }
             for p in pipes
         ],
@@ -160,12 +123,6 @@ def _config_summary(pipe: Pipe) -> str:
     return "手工存入"
 
 
-def _fmt_ts(ts: int | None) -> str:
-    if not ts:
-        return "-"
-    return datetime.fromtimestamp(ts).strftime("%m-%d %H:%M")
-
-
 def _git(args: list[str], timeout: int = 15, check: bool = True):
     proc = subprocess.run(["git", *args], cwd=REPO_ROOT, capture_output=True,
                           text=True, timeout=timeout)
@@ -188,15 +145,11 @@ def run_export(db: Session, trigger: str = "manual") -> None:
             db.commit()
             return
 
-        for rel_path, content in (
-            (EXPORT_FILES[0], render_pipes_md(db)),
-            (EXPORT_FILES[1], build_pipes_json(db)),
-        ):
-            path = REPO_ROOT / rel_path
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(content, encoding="utf-8")
-        _git(["add", *EXPORT_FILES])
-        if _git(["diff", "--cached", "--quiet", "--", *EXPORT_FILES],
+        path = REPO_ROOT / EXPORT_FILE
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(build_pipes_json(db), encoding="utf-8")
+        _git(["add", EXPORT_FILE])
+        if _git(["diff", "--cached", "--quiet", "--", EXPORT_FILE],
                 check=False).returncode == 0:
             log.status = "done"
             log.error = "内容无变化,跳过提交"

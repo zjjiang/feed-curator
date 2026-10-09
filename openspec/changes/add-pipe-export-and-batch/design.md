@@ -6,7 +6,7 @@ pipe 表有约 30 行,字段:type / name / config(JSON) / domain_id / enabled / 
 
 **Goals:**
 
-- 一份按平台类型分大类的 `docs/pipes.md`,自动提交推送 GitHub。
+- 一份机器可读的 `docs/pipes.json`(每条带内容大类),自动提交推送 GitHub。
 - /admin/pipes 多选批量拉取,后台执行、防重入、有 run_log 可查。
 
 **Non-Goals:**
@@ -24,13 +24,13 @@ pipe 表有约 30 行,字段:type / name / config(JSON) / domain_id / enabled / 
    pipe config 里可写 `"category"` 强制指定,规则失准时的逃生口;零 schema 变更。
    备选的手动逐源分类字段被否:要改表单、逐个设置,启发式 + 覆盖已够用。
 
-2. **JSON 是交换格式,Markdown 是展示格式,两者同 commit 推送。**
-   `docs/pipes.json`(version + exported_at + pipes 数组,domain 存名字不存 id 以便跨库)
-   是导出/导入的单一格式:导出生成它,导入消费它,备份/两机迁移直接复用。
-   `docs/pipes.md` 由同一份数据渲染,面向人与外部 LLM。
+2. **JSON 是唯一导出物,也是导出/导入的交换格式。**
+   `docs/pipes.json`(version + exported_at + pipes 数组,domain 存名字不存 id 以便跨库,
+   每条带内容大类 category):导出生成它,导入消费它,备份/两机迁移直接复用。
+   不再生成 Markdown(用户评审后拍板去掉;ChatGPT 等外部工具直接读 JSON)。
 
 3. **导出 = 服务内直接 `git add/commit/push` 两个文件。**
-   服务器工作区本就是仓库;subprocess 限定操作 `docs/pipes.md` 与 `docs/pipes.json`,
+   服务器工作区本就是仓库;subprocess 限定操作 `docs/pipes.json` 一个文件,
    `git diff --cached --quiet` 先检测无变化则跳过 commit,push 超时 30s。
    注意:工作区若有未提交的本地改动,commit 只 add 这两个文件,不碰其他。
 

@@ -19,7 +19,7 @@
 ## 4. 验证与收尾
 
 - [x] 4.1 `uv run pytest` 全绿,覆盖率 ≥ 80%
-- [ ] 4.2 本地实测:导出按钮真实 push 一次,检查 GitHub 上 docs/pipes.md 渲染与内容正确
+- [x] 4.2 本地实测:worktree(main)真实 run_export 一次,push 成功,GitHub API 确认内容正确
 - [x] 4.3 实测批量拉取:选 3 根管道更新,确认 run_log 三条、busy/空选择路径正常
 
 ## 5. 内容分类 + JSON 交换格式(评审后扩展)
@@ -31,3 +31,10 @@
 - [x] 5.5 实现 `app/services/pipe_import.py`(边界校验 + 去重 + create_pipe)
 - [x] 5.6 POST /admin/pipes/import 路由 + pipes.html 导入表单(粘贴 JSON);更新导出相关测试
 - [x] 5.7 全量测试 + 真实重导出(双文件推送,GitHub 确认 JSON 可下载且分类正确)
+
+## 6. 去掉 Markdown,只留 JSON(评审后收敛)
+
+- [x] 6.1 更新规格/设计:导出物收敛为 docs/pipes.json,category 进 JSON 每条字段
+- [x] 6.2 pipe_export 删除 md 渲染,run_export 单文件;导出测试全部改 JSON 断言
+- [x] 6.3 分支合入 main 后删除仓库中的 docs/pipes.md
+- [x] 6.4 全量测试 + 真实重导出确认 GitHub 上只剩 pipes.json
