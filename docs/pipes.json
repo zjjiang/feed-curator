@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exported_at": 1791545834,
+  "exported_at": 1791546296,
   "pipes": [
     {
       "type": "manual",
@@ -8,7 +8,8 @@
       "config": {},
       "domain": null,
       "enabled": 0,
-      "fetch_interval_min": 30
+      "fetch_interval_min": 30,
+      "category": "手工存入"
     },
     {
       "type": "rss",
@@ -18,7 +19,8 @@
       },
       "domain": null,
       "enabled": 1,
-      "fetch_interval_min": 30
+      "fetch_interval_min": 30,
+      "category": "科技媒体"
     },
     {
       "type": "rss",
@@ -28,7 +30,8 @@
       },
       "domain": null,
       "enabled": 1,
-      "fetch_interval_min": 180
+      "fetch_interval_min": 180,
+      "category": "厂商官方"
     },
     {
       "type": "rss",
@@ -38,7 +41,8 @@
       },
       "domain": null,
       "enabled": 1,
-      "fetch_interval_min": 60
+      "fetch_interval_min": 60,
+      "category": "科技媒体"
     },
     {
       "type": "rss",
@@ -48,7 +52,8 @@
       },
       "domain": null,
       "enabled": 1,
-      "fetch_interval_min": 360
+      "fetch_interval_min": 360,
+      "category": "论文与研究"
     },
     {
       "type": "rss",
@@ -58,7 +63,8 @@
       },
       "domain": null,
       "enabled": 1,
-      "fetch_interval_min": 180
+      "fetch_interval_min": 180,
+      "category": "开发者与独立博客"
     },
     {
       "type": "rss",
@@ -68,7 +74,8 @@
       },
       "domain": null,
       "enabled": 1,
-      "fetch_interval_min": 180
+      "fetch_interval_min": 180,
+      "category": "开发者与独立博客"
     },
     {
       "type": "rss",
@@ -78,7 +85,8 @@
       },
       "domain": null,
       "enabled": 1,
-      "fetch_interval_min": 180
+      "fetch_interval_min": 180,
+      "category": "论文与研究"
     },
     {
       "type": "rss",
@@ -88,7 +96,8 @@
       },
       "domain": null,
       "enabled": 1,
-      "fetch_interval_min": 180
+      "fetch_interval_min": 180,
+      "category": "论文与研究"
     },
     {
       "type": "rss",
@@ -98,7 +107,8 @@
       },
       "domain": null,
       "enabled": 1,
-      "fetch_interval_min": 60
+      "fetch_interval_min": 60,
+      "category": "开发者与独立博客"
     },
     {
       "type": "rss",
@@ -108,7 +118,8 @@
       },
       "domain": null,
       "enabled": 1,
-      "fetch_interval_min": 180
+      "fetch_interval_min": 180,
+      "category": "厂商官方"
     },
     {
       "type": "rss",
@@ -118,7 +129,8 @@
       },
       "domain": null,
       "enabled": 1,
-      "fetch_interval_min": 180
+      "fetch_interval_min": 180,
+      "category": "论文与研究"
     },
     {
       "type": "rss",
@@ -128,7 +140,8 @@
       },
       "domain": null,
       "enabled": 1,
-      "fetch_interval_min": 120
+      "fetch_interval_min": 120,
+      "category": "科技媒体"
     },
     {
       "type": "rss",
@@ -138,7 +151,8 @@
       },
       "domain": null,
       "enabled": 1,
-      "fetch_interval_min": 60
+      "fetch_interval_min": 60,
+      "category": "开发者与独立博客"
     },
     {
       "type": "rss",
@@ -148,7 +162,8 @@
       },
       "domain": null,
       "enabled": 1,
-      "fetch_interval_min": 180
+      "fetch_interval_min": 180,
+      "category": "论文与研究"
     },
     {
       "type": "rss",
@@ -158,7 +173,8 @@
       },
       "domain": null,
       "enabled": 1,
-      "fetch_interval_min": 120
+      "fetch_interval_min": 120,
+      "category": "科技媒体"
     },
     {
       "type": "rss",
@@ -168,7 +184,8 @@
       },
       "domain": null,
       "enabled": 1,
-      "fetch_interval_min": 180
+      "fetch_interval_min": 180,
+      "category": "厂商官方"
     },
     {
       "type": "rss",
@@ -178,7 +195,8 @@
       },
       "domain": null,
       "enabled": 1,
-      "fetch_interval_min": 120
+      "fetch_interval_min": 120,
+      "category": "开发者与独立博客"
     },
     {
       "type": "rss",
@@ -188,7 +206,8 @@
       },
       "domain": null,
       "enabled": 1,
-      "fetch_interval_min": 60
+      "fetch_interval_min": 60,
+      "category": "科技媒体"
     },
     {
       "type": "rss",
@@ -198,7 +217,8 @@
       },
       "domain": null,
       "enabled": 1,
-      "fetch_interval_min": 60
+      "fetch_interval_min": 60,
+      "category": "科技媒体"
     },
     {
       "type": "rss",
@@ -208,7 +228,8 @@
       },
       "domain": null,
       "enabled": 1,
-      "fetch_interval_min": 120
+      "fetch_interval_min": 120,
+      "category": "科技媒体"
     },
     {
       "type": "rss",
@@ -218,7 +239,8 @@
       },
       "domain": null,
       "enabled": 1,
-      "fetch_interval_min": 30
+      "fetch_interval_min": 30,
+      "category": "科技媒体"
     },
     {
       "type": "wechat",
@@ -229,7 +251,8 @@
       },
       "domain": null,
       "enabled": 1,
-      "fetch_interval_min": 60
+      "fetch_interval_min": 60,
+      "category": "微信公众号"
     },
     {
       "type": "wechat",
@@ -240,7 +263,8 @@
       },
       "domain": null,
       "enabled": 1,
-      "fetch_interval_min": 60
+      "fetch_interval_min": 60,
+      "category": "微信公众号"
     },
     {
       "type": "wechat",
@@ -251,7 +275,8 @@
       },
       "domain": null,
       "enabled": 1,
-      "fetch_interval_min": 60
+      "fetch_interval_min": 60,
+      "category": "微信公众号"
     },
     {
       "type": "wechat",
@@ -262,7 +287,8 @@
       },
       "domain": null,
       "enabled": 1,
-      "fetch_interval_min": 60
+      "fetch_interval_min": 60,
+      "category": "微信公众号"
     },
     {
       "type": "wechat",
@@ -273,7 +299,8 @@
       },
       "domain": null,
       "enabled": 1,
-      "fetch_interval_min": 60
+      "fetch_interval_min": 60,
+      "category": "微信公众号"
     },
     {
       "type": "wechat",
@@ -284,7 +311,8 @@
       },
       "domain": null,
       "enabled": 1,
-      "fetch_interval_min": 60
+      "fetch_interval_min": 60,
+      "category": "微信公众号"
     },
     {
       "type": "wechat",
@@ -295,7 +323,8 @@
       },
       "domain": null,
       "enabled": 1,
-      "fetch_interval_min": 60
+      "fetch_interval_min": 60,
+      "category": "微信公众号"
     },
     {
       "type": "wechat",
@@ -306,7 +335,8 @@
       },
       "domain": null,
       "enabled": 1,
-      "fetch_interval_min": 60
+      "fetch_interval_min": 60,
+      "category": "微信公众号"
     },
     {
       "type": "wechat",
@@ -317,7 +347,8 @@
       },
       "domain": null,
       "enabled": 1,
-      "fetch_interval_min": 60
+      "fetch_interval_min": 60,
+      "category": "微信公众号"
     },
     {
       "type": "wechat",
@@ -328,7 +359,8 @@
       },
       "domain": null,
       "enabled": 1,
-      "fetch_interval_min": 60
+      "fetch_interval_min": 60,
+      "category": "微信公众号"
     },
     {
       "type": "wechat",
@@ -339,7 +371,8 @@
       },
       "domain": null,
       "enabled": 1,
-      "fetch_interval_min": 60
+      "fetch_interval_min": 60,
+      "category": "微信公众号"
     }
   ]
 }
