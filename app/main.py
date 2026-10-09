@@ -64,6 +64,7 @@ def _run_fetch_cycle():
     finally:
         db.close()
     _maybe_start_repo_refresh()
+    _maybe_start_daily_export()
 
 
 def _maybe_start_repo_refresh():
@@ -75,6 +76,17 @@ def _maybe_start_repo_refresh():
             print("[repo-refresh] 已启动每日星标刷新")
     except Exception as e:  # noqa: BLE001 — 刷新失败不影响采集主流程
         print(f"[repo-refresh] 启动失败: {type(e).__name__}: {e}")
+
+
+def _maybe_start_daily_export():
+    """采集周期顺带检查订阅源清单导出是否到期(每日一次,推 GitHub)。"""
+    try:
+        from app.services.pipe_export import maybe_start_export
+
+        if maybe_start_export(trigger="auto"):
+            print("[pipe-export] 已启动每日源清单导出")
+    except Exception as e:  # noqa: BLE001 — 导出失败不影响采集主流程
+        print(f"[pipe-export] 启动失败: {type(e).__name__}: {e}")
 
 
 def _run_analyze_cycle():

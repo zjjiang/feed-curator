@@ -1,5 +1,6 @@
 import json
 import time
+import urllib.parse
 
 import pytest
 from fastapi.testclient import TestClient
@@ -336,3 +337,48 @@ class TestStatsPage:
     def test_stats_custom_range_empty(self, client, db_session):
         html = client.get("/admin/stats?start=2020-01-01&end=2020-01-02").text
         assert "范围内无数据" in html
+
+
+class TestPipeBatchAndExportRoutes:
+    def test_batch_fetch_empty_rejected(self, client, db_session):
+        r = client.post("/admin/pipes/batch-fetch", data={}, follow_redirects=False)
+        assert r.status_code == 303 and "batch_empty" in r.headers["location"]
+
+    def test_batch_fetch_starts(self, client, db_session, monkeypatch):
+        import threading
+
+        from app.services import pipe_batch
+        started = threading.Event()
+        monkeypatch.setattr(pipe_batch, "run_batch_fetch",
+                            lambda ids: started.set() or {"ok": len(ids), "failed": 0})
+        r = client.post("/admin/pipes/batch-fetch", data={"ids": "1"}, follow_redirects=False)
+        assert r.status_code == 303 and "batch_started" in r.headers["location"]
+        assert started.wait(timeout=5)
+
+    def test_export_route_starts(self, client, db_session, monkeypatch):
+        from app.services import pipe_export
+        monkeypatch.setattr(pipe_export, "maybe_start_export",
+                            lambda trigger="manual": True)
+        r = client.post("/admin/pipes/export", follow_redirects=False)
+        assert r.status_code == 303 and "export_started" in r.headers["location"]
+
+
+class TestPipeImportRoute:
+    def test_import_creates_and_reports(self, client, db_session):
+        payload = json.dumps({"pipes": [
+            {"type": "rss", "name": "导入源", "config": {"feed_url": "https://i.com/f"}}]},
+            ensure_ascii=False)
+        r = client.post("/admin/pipes/import", data={"payload": payload},
+                        follow_redirects=False)
+        loc = r.headers["location"]
+        assert r.status_code == 303 and "imported=" in loc
+        result = json.loads(urllib.parse.unquote(loc.split("imported=")[1]))
+        assert result["imported"] == 1
+        # 页面渲染结果
+        html = client.get(loc, follow_redirects=True).text
+        assert "导入完成:新增 1 个" in html
+
+    def test_import_invalid_json_errors(self, client, db_session):
+        r = client.post("/admin/pipes/import", data={"payload": "not json"},
+                        follow_redirects=False)
+        assert r.status_code == 303 and "error=import" in r.headers["location"]
