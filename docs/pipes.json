@@ -1,0 +1,345 @@
+{
+  "version": 1,
+  "exported_at": 1791545834,
+  "pipes": [
+    {
+      "type": "manual",
+      "name": "手工存入",
+      "config": {},
+      "domain": null,
+      "enabled": 0,
+      "fetch_interval_min": 30
+    },
+    {
+      "type": "rss",
+      "name": "36氪",
+      "config": {
+        "feed_url": "http://127.0.0.1:9002/36kr/news/latest"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 30
+    },
+    {
+      "type": "rss",
+      "name": "Anthropic News",
+      "config": {
+        "feed_url": "http://127.0.0.1:9002/anthropic/news"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 180
+    },
+    {
+      "type": "rss",
+      "name": "Ars Technica",
+      "config": {
+        "feed_url": "https://feeds.arstechnica.com/arstechnica/index"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 60
+    },
+    {
+      "type": "rss",
+      "name": "BAIR Berkeley",
+      "config": {
+        "feed_url": "https://bair.berkeley.edu/blog/feed.xml"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 360
+    },
+    {
+      "type": "rss",
+      "name": "GitHub Blog",
+      "config": {
+        "feed_url": "https://github.blog/feed/"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 180
+    },
+    {
+      "type": "rss",
+      "name": "GitHub Trending",
+      "config": {
+        "feed_url": "http://127.0.0.1:9002/github/trending/daily/any"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 180
+    },
+    {
+      "type": "rss",
+      "name": "Google DeepMind",
+      "config": {
+        "feed_url": "https://deepmind.google/blog/rss.xml"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 180
+    },
+    {
+      "type": "rss",
+      "name": "Google Research",
+      "config": {
+        "feed_url": "https://research.google/blog/rss/"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 180
+    },
+    {
+      "type": "rss",
+      "name": "Hacker News 最佳",
+      "config": {
+        "feed_url": "http://127.0.0.1:9002/hackernews/best"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 60
+    },
+    {
+      "type": "rss",
+      "name": "HuggingFace Blog",
+      "config": {
+        "feed_url": "https://huggingface.co/blog/feed.xml"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 180
+    },
+    {
+      "type": "rss",
+      "name": "HuggingFace 每日论文",
+      "config": {
+        "feed_url": "http://127.0.0.1:9002/huggingface/daily-papers"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 180
+    },
+    {
+      "type": "rss",
+      "name": "InfoQ 推荐",
+      "config": {
+        "feed_url": "http://127.0.0.1:9002/infoq/recommend"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 120
+    },
+    {
+      "type": "rss",
+      "name": "Lobsters",
+      "config": {
+        "feed_url": "https://lobste.rs/rss"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 60
+    },
+    {
+      "type": "rss",
+      "name": "Microsoft Research",
+      "config": {
+        "feed_url": "https://www.microsoft.com/en-us/research/feed/"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 180
+    },
+    {
+      "type": "rss",
+      "name": "MIT Tech Review",
+      "config": {
+        "feed_url": "https://www.technologyreview.com/feed/"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 120
+    },
+    {
+      "type": "rss",
+      "name": "OpenAI News",
+      "config": {
+        "feed_url": "https://openai.com/news/rss.xml"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 180
+    },
+    {
+      "type": "rss",
+      "name": "Simon Willison",
+      "config": {
+        "feed_url": "https://simonwillison.net/atom/everything/"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 120
+    },
+    {
+      "type": "rss",
+      "name": "TechCrunch",
+      "config": {
+        "feed_url": "https://techcrunch.com/feed/"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 60
+    },
+    {
+      "type": "rss",
+      "name": "The Verge",
+      "config": {
+        "feed_url": "https://www.theverge.com/rss/index.xml"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 60
+    },
+    {
+      "type": "rss",
+      "name": "少数派 Matrix",
+      "config": {
+        "feed_url": "http://127.0.0.1:9002/sspai/matrix"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 120
+    },
+    {
+      "type": "rss",
+      "name": "虎嗅",
+      "config": {
+        "feed_url": "http://127.0.0.1:9002/huxiu/article"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 30
+    },
+    {
+      "type": "wechat",
+      "name": "AI工程化",
+      "config": {
+        "mp_id": "MP_WXS_3091215681",
+        "wewe_base_url": "http://127.0.0.1:9001"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 60
+    },
+    {
+      "type": "wechat",
+      "name": "AI数据标注猿",
+      "config": {
+        "mp_id": "MP_WXS_3235950769",
+        "wewe_base_url": "http://127.0.0.1:9001"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 60
+    },
+    {
+      "type": "wechat",
+      "name": "AI组织进化论",
+      "config": {
+        "mp_id": "MP_WXS_3585795950",
+        "wewe_base_url": "http://127.0.0.1:9001"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 60
+    },
+    {
+      "type": "wechat",
+      "name": "CSDN",
+      "config": {
+        "mp_id": "MP_WXS_3930654829",
+        "wewe_base_url": "http://127.0.0.1:9001"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 60
+    },
+    {
+      "type": "wechat",
+      "name": "InfoQ",
+      "config": {
+        "mp_id": "MP_WXS_2390142780",
+        "wewe_base_url": "http://127.0.0.1:9001"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 60
+    },
+    {
+      "type": "wechat",
+      "name": "克劳德猎手",
+      "config": {
+        "mp_id": "MP_WXS_3935644082",
+        "wewe_base_url": "http://127.0.0.1:9001"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 60
+    },
+    {
+      "type": "wechat",
+      "name": "新智元",
+      "config": {
+        "mp_id": "MP_WXS_3271041950",
+        "wewe_base_url": "http://127.0.0.1:9001"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 60
+    },
+    {
+      "type": "wechat",
+      "name": "机器之心",
+      "config": {
+        "mp_id": "MP_WXS_3073282833",
+        "wewe_base_url": "http://127.0.0.1:9001"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 60
+    },
+    {
+      "type": "wechat",
+      "name": "硅谷101",
+      "config": {
+        "mp_id": "MP_WXS_3086505248",
+        "wewe_base_url": "http://127.0.0.1:9001"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 60
+    },
+    {
+      "type": "wechat",
+      "name": "程序猿",
+      "config": {
+        "mp_id": "MP_WXS_2397051720",
+        "wewe_base_url": "http://127.0.0.1:9001"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 60
+    },
+    {
+      "type": "wechat",
+      "name": "量子位",
+      "config": {
+        "mp_id": "MP_WXS_3236757533",
+        "wewe_base_url": "http://127.0.0.1:9001"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 60
+    }
+  ]
+}
