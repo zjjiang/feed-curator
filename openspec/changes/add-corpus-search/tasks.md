@@ -16,10 +16,10 @@
 
 ## 3. 检索服务与片段（TDD）
 
-- [ ] 3.1 先写测试：kind/domain/days 过滤组合、判定缺失时字段为空不排除、无命中响应、空查询报错
-- [ ] 3.2 实现 `app/services/doc_search.py`：过滤查询（join 最新 ok 判定取 stars/domains）、结果组装
-- [ ] 3.3 片段切取：回取 content_text、定位首个命中词、前后 ~120 字窗口、截断外命中回退正文开头
-- [ ] 3.4 get_doc 服务：三类实体内容路由、max_chars 截断标注、最新成功判定附带、doc_id 不存在报错
+- [x] 3.1 先写测试：kind/domain/days 过滤组合、判定缺失时字段为空不排除、无命中响应、空查询报错
+- [x] 3.2 实现 `app/services/doc_search.py`：过滤查询（join 最新 ok 判定取 stars/domains）、结果组装
+- [x] 3.3 片段切取：回取 content_text、定位首个命中词、前后 ~120 字窗口、截断外命中回退正文开头
+- [x] 3.4 get_doc 服务：三类实体内容路由、max_chars 截断标注、最新成功判定附带、doc_id 不存在报错
 
 ## 4. MCP 工具接入
 
