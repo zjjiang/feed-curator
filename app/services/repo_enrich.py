@@ -113,6 +113,10 @@ def run_readme_backfill(db: Session | None = None, *,
             RunLog.finished_at: int(time.time()),
         })
         db.commit()
+        if stats.get("succeeded"):
+            from app.services import search_index  # 延迟导入:无检索场景不加载 numpy
+
+            search_index.mark_dirty()
         return stats
     finally:
         if owns_db:

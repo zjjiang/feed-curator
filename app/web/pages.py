@@ -590,6 +590,10 @@ def ops_page(request: Request, db: Session = Depends(get_session)):
     running = db.query(RunLog).filter(RunLog.status == "running") \
         .order_by(RunLog.id.desc()).all()
 
+    from app.services import search_index as search_index_mod
+
+    idx_stats = search_index_mod.index_stats(db, search_index_mod.DEFAULT_INDEX_DIR)
+
     summary = {
         "docs_total": sum(by_kind.values()),
         "papers": by_kind.get("paper", 0),
@@ -606,7 +610,24 @@ def ops_page(request: Request, db: Session = Depends(get_session)):
     return templates.TemplateResponse(request, "ops.html", {
         "summary": summary,
         "run_rows": run_rows,
+        "index_stats": idx_stats,
+        "index_uncovered": idx_stats["uncovered"][:20],
+        "index_built_fmt": _fmt_time(idx_stats["built_at"]) if idx_stats["built_at"] else "-",
     })
+
+
+@router.post("/admin/search-index/rebuild")
+def rebuild_search_index(db: Session = Depends(get_session)):
+    """手动全量重建检索索引(派生数据,不影响文档)。"""
+    from app.services import search_index as search_index_mod
+
+    try:
+        search_index_mod.maybe_rebuild(db, search_index_mod.DEFAULT_INDEX_DIR)
+        msg = "index_rebuilt"
+    except Exception as e:  # noqa: BLE001 — 失败反馈到界面
+        print(f"[search-index] 重建失败: {e}")
+        msg = "index_failed"
+    return RedirectResponse(f"/admin?msg={msg}", status_code=303)
 
 
 def _run_counts(r: RunLog) -> str:
