@@ -23,9 +23,9 @@
 
 ## 4. MCP 工具接入
 
-- [ ] 4.1 `search_docs(query, kind, domain, days, limit)` 工具：参数校验（空查询、limit 1-50、days>=1）、错误转 `{ok: false, error}`、索引不可用时提示重建
-- [ ] 4.2 `get_doc(doc_id, max_chars)` 工具：同上错误语义
-- [ ] 4.3 工具 docstring 按 agent 消费习惯写清参数含义与返回结构
+- [x] 4.1 `search_docs(query, kind, domain, days, limit)` 工具：参数校验（空查询、limit 1-50、days>=1）、错误转 `{ok: false, error}`、索引不可用时提示重建
+- [x] 4.2 `get_doc(doc_id, max_chars)` 工具：同上错误语义
+- [x] 4.3 工具 docstring 按 agent 消费习惯写清参数含义与返回结构
 
 ## 5. 端到端验证
 

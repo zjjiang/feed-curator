@@ -26,6 +26,9 @@ mcp = FastMCP("feed-curator", stateless_http=True, streamable_http_path="/")
 
 _wewe = WeweClient()
 
+# 检索索引目录:测试用 monkeypatch 覆盖;None → search_index.DEFAULT_INDEX_DIR
+SEARCH_INDEX_DIR = None
+
 
 @mcp.tool()
 def add_rss(name: str, feed_url: str, interval_min: int = 30) -> dict:
@@ -106,6 +109,67 @@ def save_url(url: str, note: str = "") -> dict:
         return manual_service.save_url(db, url.strip(), note=note.strip() or None)
     except Exception as e:  # noqa: BLE001
         return {"ok": False, "error": str(e)}
+    finally:
+        db.close()
+
+
+# ============ 检索 ============
+
+
+@mcp.tool()
+def search_docs(query: str, kind: str | None = None, domain: str | None = None,
+                days: int | None = None, limit: int = 10) -> dict:
+    """按关键词检索已入库的文档语料(中文分词 + BM25 相关性排序)。
+
+    用于回答「库里有没有关于 X 的内容」类问题。结果按相关性排序,每条
+    附内容片段;无结果时返回建议。可多轮迭代:换关键词、加过滤缩小范围。
+
+    Args:
+        query: 查询词(中文/英文/owner/name 形态均可),不能为空
+        kind: 可选,限定实体类型:article / paper / repo
+        domain: 可选,限定领域名(精确匹配)
+        days: 可选,时间窗口天数(按文档 sort_time)
+        limit: 返回条数上限,默认 10,最大 50
+
+    Returns:
+        {ok, count, results: [{doc_id, kind, title, url, snippet, stars,
+        domains, sort_time}], note?};stars/domains 为判定结果,未判定为空。
+    """
+    from app.services import doc_search
+
+    db = SessionLocal()
+    try:
+        return doc_search.search_docs(db, query.strip(), kind=kind, domain=domain,
+                                      days=days, limit=limit,
+                                      index_dir=SEARCH_INDEX_DIR)
+    except Exception as e:  # noqa: BLE001 — 工具边界,统一转友好错误
+        return {"ok": False, "error": f"检索失败:{type(e).__name__}: {e}"}
+    finally:
+        db.close()
+
+
+@mcp.tool()
+def get_doc(doc_id: int, max_chars: int = 8000) -> dict:
+    """按 doc_id 读取文档全文与最新 AI 判定,用于对检索结果深读。
+
+    通常先 search_docs 拿到候选,再对感兴趣的条目取全文细读。
+
+    Args:
+        doc_id: search_docs 返回的文档标识
+        max_chars: 正文返回上限,默认 8000;超出会截断并标注总长
+
+    Returns:
+        {ok, doc_id, kind, title, url, content, content_truncated,
+        content_total_chars, analysis};analysis 为最新一次成功判定
+        (summary/keypoints/domains/stars),未判定为 null。
+    """
+    from app.services import doc_search
+
+    db = SessionLocal()
+    try:
+        return doc_search.get_doc(db, doc_id, max_chars=max_chars)
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": f"读取失败:{type(e).__name__}: {e}"}
     finally:
         db.close()
 
