@@ -76,6 +76,10 @@ def save_url(db: Session, url: str, note: str | None = None) -> dict:
         external_id=normalized,
         sort_time=int(time.time()),
     )
+    if result.doc_created or result.discovery_created:
+        from app.services import search_index  # 延迟导入:无检索场景不加载 numpy
+
+        search_index.mark_dirty()
     return {
         "doc_id": result.doc_id,
         "kind": kind,
