@@ -92,7 +92,7 @@ app/
 ├── main.py            # FastAPI app, JSON API, lifespan; fetch + analyze scheduler cycles; mounts MCP at /mcp
 ├── db.py              # engine/session; init_db = create_all + zombie-run cleanup + orphan report
 ├── writer.py          # THE single write entry: upsert_doc() + refresh_repo() + check_orphans()
-├── mcp_server.py      # MCP tools at /mcp: add_rss, list_pipes, save_url, domains, recommend, job_status
+├── mcp_server.py      # MCP tools at /mcp: add_rss, list_pipes, save_url, search_docs, get_doc, domains, recommend, job_status
 ├── adapters/          # rss / arxiv / wechat / github — return FetchedItem, never touch the DB
 ├── ai/
 │   ├── client.py      # LLMClient.analyze() → {summary, keypoints, domains, article_kind, stars}; output defense lives here
@@ -107,6 +107,8 @@ app/
 │   ├── repo_enrich.py         # README completion for new repos (inline in github fetch) + /ops backfill (run_log kind='readme')
 │   ├── repo_refresh.py        # daily star refresh + delta computation via refresh_repo (run_log kind='refresh')
 │   ├── manual_service.py      # "save URL" entry (manual pipe type)
+│   ├── search_index.py        # in-process lexical index (jieba + bm25s); dirty-flag rebuild, data/search_index/ is derived data
+│   ├── doc_search.py          # agent retrieval: search_docs (filters + snippet) and get_doc (full content + latest analysis)
 │   ├── doc_fields.py          # FetchedItem → (kind, detail) field routing, shared by all writers
 │   ├── source_service.py      # create_pipe helpers + github config validation
 │   └── wewe_client.py         # we-mp-rss HTTP client (login/search/subscribe)

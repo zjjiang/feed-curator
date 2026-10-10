@@ -9,3 +9,5 @@ data/*.db.bak-*
 *.egg-info/
 .env.bak*
 data/workbench.html
+data/search_index/
+data/search_stopwords.txt
