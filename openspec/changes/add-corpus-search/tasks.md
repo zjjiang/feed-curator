@@ -36,6 +36,6 @@
 
 ## 6. 收尾
 
-- [ ] 6.1 CLAUDE.md 目录布局与 pipeline 描述补充检索模块
-- [ ] 6.2 .gitignore 确认 `data/search_index/`（派生数据不入库）
+- [x] 6.1 CLAUDE.md 目录布局与 pipeline 描述补充检索模块
+- [x] 6.2 .gitignore 确认 `data/search_index/`（派生数据不入库）
 - [ ] 6.3 提交按 conventional commits 分组，推 feature 分支开 PR，等用户 review 合并
