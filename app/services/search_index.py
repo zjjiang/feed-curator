@@ -243,3 +243,36 @@ def safe_rebuild(db, index_dir: str = DEFAULT_INDEX_DIR, **kw) -> None:
         maybe_rebuild(db, index_dir)
     except Exception as e:  # noqa: BLE001 — 索引失败不影响写入(spec 场景)
         log.warning("检索索引重建失败(不影响写入): %s", e)
+
+
+# ============ 索引状态(运维界面展示) ============
+
+
+def index_stats(db, index_dir: str = DEFAULT_INDEX_DIR) -> dict:
+    """索引覆盖状态:实时对比当前索引与数据库,不做缓存。
+
+    返回 {exists, total, indexed, uncovered, built_at}:
+    - exists=False(索引从未构建)时 uncovered 为空清单,由界面提示先重建;
+    - uncovered 为未入索引文档 [{doc_id, kind, title}](内容为空或分词后
+      无有效 token 的文档不会被建入索引)。
+    """
+    total_docs = db.query(Doc.id, Doc.kind, Doc.title).order_by(Doc.id).all()
+    total = len(total_docs)
+    try:
+        index = load_index(index_dir)
+    except (FileNotFoundError, Exception):  # noqa: BLE001 — 缺失/损坏统一按未构建展示
+        return {"exists": False, "total": total, "indexed": 0,
+                "uncovered": [], "built_at": None}
+
+    indexed_ids = set(index.doc_ids)
+    uncovered = [
+        {"doc_id": d_id, "kind": kind, "title": title}
+        for d_id, kind, title in total_docs
+        if d_id not in indexed_ids
+    ]
+    try:
+        built_at = int(os.path.getmtime(os.path.join(index_dir, "doc_ids.json")))
+    except OSError:
+        built_at = None
+    return {"exists": True, "total": total, "indexed": len(indexed_ids),
+            "uncovered": uncovered, "built_at": built_at}

@@ -9,10 +9,12 @@
   <div class="card"><div class="num">{{ summary.fetch_ok_24h }}<span style="font-size:13px;color:var(--muted)"> / {{ summary.fetch_fail_24h }}</span></div>
     <div class="muted">24h 采集 成功/失败</div></div>
   <div class="card"><div class="num" style="color: {{ 'var(--err)' if summary.orphan_docs else 'var(--ok)' }}">{{ summary.orphan_docs }}</div><div class="muted">孤儿 doc</div></div>
+  <div class="card"><div class="num" style="color: {{ 'var(--err)' if not index_stats.exists else ('var(--muted)' if index_stats.uncovered else 'var(--ok)') }}">{% if index_stats.exists %}{{ index_stats.indexed }}/{{ index_stats.total }}{% else %}未构建{% endif %}</div>
+    <div class="muted">检索索引 · 构建于 {{ index_built_fmt }}</div></div>
 </div>
 
 {% set kind_labels = {'fetch':'采集','analyze':'AI 判定','fulltext':'正文补全','refresh':'星标刷新','readme':'README 补全'} %}
-{% set msgs = {'refresh_started':'星标刷新已启动,进度见最近运行','refresh_busy':'已有星标刷新在运行','readme_started':'README 补抓已开始(50 个/批)','readme_busy':'已有 README 补抓在运行','export_started':'源清单导出已开始,推送结果见最近运行(kind=export)','export_busy':'已有导出在执行'} %}
+{% set msgs = {'refresh_started':'星标刷新已启动,进度见最近运行','refresh_busy':'已有星标刷新在运行','readme_started':'README 补抓已开始(50 个/批)','readme_busy':'已有 README 补抓在运行','export_started':'源清单导出已开始,推送结果见最近运行(kind=export)','export_busy':'已有导出在执行','index_rebuilt':'检索索引已全量重建','index_failed':'检索索引重建失败,详见服务日志'} %}
 {% if request.query_params.get('msg') in msgs %}
 <div class="card muted">{{ msgs[request.query_params.get('msg')] }}</div>
 {% endif %}
@@ -49,8 +51,28 @@
   <form class="inline" method="post" action="/admin/pipes/export">
     <button>导出源清单到 GitHub</button>
   </form>
-  <span class="muted">判定需要配置 DEEPSEEK_API_KEY;补全与补抓限速 1 秒/篇。</span>
+  <form class="inline" method="post" action="/admin/search-index/rebuild">
+    <button>重建检索索引</button>
+  </form>
+  <span class="muted">判定需要配置 DEEPSEEK_API_KEY;补全与补抓限速 1 秒/篇;重建索引约十几秒,不影响文档数据。</span>
 </div>
+
+{% if index_stats.exists and index_stats.uncovered %}
+<h2>未入检索索引({{ index_stats.uncovered | length }} 篇,最多显示 20)</h2>
+<div class="card">
+  <table>
+  <tr><th>#</th><th>类型</th><th>标题</th></tr>
+  {% for d in index_uncovered %}
+  <tr>
+    <td class="muted">{{ d.doc_id }}</td>
+    <td><span class="tag">{{ d.kind }}</span></td>
+    <td><a href="/docs/{{ d.doc_id }}">{{ d.title[:60] }}</a></td>
+  </tr>
+  {% endfor %}
+  </table>
+  <div class="muted">这些文档内容为空或分词后无有效词条;补全内容后点「重建检索索引」即可入索引。</div>
+</div>
+{% endif %}
 
 <h2>最近运行</h2>
 <table>

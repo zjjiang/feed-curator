@@ -39,3 +39,10 @@
 - [x] 6.1 CLAUDE.md 目录布局与 pipeline 描述补充检索模块
 - [x] 6.2 .gitignore 确认 `data/search_index/`（派生数据不入库）
 - [x] 6.3 提交按 conventional commits 分组，推 feature 分支开 PR，等用户 review 合并
+
+## 7. 索引状态 UI 可查(追加范围)
+
+- [x] 7.1 更新 specs(proposal/specs 增加「索引状态可查」requirement 与场景)
+- [x] 7.2 先写测试:`search_index.index_stats`(总数/已索引/未索引清单/上次构建时间),RED → GREEN
+- [x] 7.3 /admin 页:索引覆盖卡片(已索引 x/y + 构建时间)、未索引文档清单、手动重建入口(POST + 结果反馈)
+- [x] 7.4 web 测试 4 个(覆盖卡片/未索引清单/全覆盖隐藏/重建路由);全量 443 passed,覆盖 87%;真实库实测 3058/3058 全覆盖

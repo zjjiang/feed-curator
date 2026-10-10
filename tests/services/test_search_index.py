@@ -197,3 +197,31 @@ class TestGetIndexText:
         _mk_doc(db_session, kind="paper", detail={})
         doc = db_session.query(Doc).one()
         assert si.doc_text(db_session, doc)  # 不抛异常,含标题
+
+
+# ============ 索引状态(index_stats,供运维界面展示) ============
+
+
+class TestIndexStats:
+    def test_full_coverage(self, corpus, tmp_path):
+        d = str(tmp_path / "idx")
+        si.build_index(corpus, d)
+        st = si.index_stats(corpus, d)
+        assert st["exists"] and st["total"] == 3 and st["indexed"] == 3
+        assert st["uncovered"] == [] and st["built_at"] > 0
+
+    def test_uncovered_docs_listed(self, corpus, tmp_path):
+        d = str(tmp_path / "idx")
+        si.build_index(corpus, d)
+        _mk_doc(corpus, kind="article", url="https://example.com/article/new-2",
+                title="后来新增的文档", pipe_id=2, external_id="e-new2")
+        st = si.index_stats(corpus, d)
+        assert st["indexed"] == 3 and st["total"] == 4
+        assert st["uncovered"][0]["doc_id"] == 4
+        assert st["uncovered"][0]["title"] == "后来新增的文档"
+        assert st["uncovered"][0]["kind"] == "article"
+
+    def test_missing_index(self, db_session, tmp_path):
+        st = si.index_stats(db_session, str(tmp_path / "nope"))
+        assert not st["exists"] and st["indexed"] == 0 and st["built_at"] is None
+        assert st["uncovered"] == []
