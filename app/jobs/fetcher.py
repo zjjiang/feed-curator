@@ -82,7 +82,16 @@ def fetch_source(db: Session, pipe: Pipe, trigger: str = "auto") -> tuple[int, s
     _mark_pipe(db, pipe, error)
     _write_run_log(db, pipe, trigger, ok=error is None, inserted=inserted,
                    error=error, started=started)
+    if inserted:
+        _mark_search_dirty()
     return inserted, error
+
+
+def _mark_search_dirty() -> None:
+    """新入库数据使检索索引过期。延迟导入:无检索场景不加载 numpy/jieba。"""
+    from app.services import search_index
+
+    search_index.mark_dirty()
 
 
 def _ingest_item(db: Session, pipe: Pipe, fi: FetchedItem) -> UpsertResult | None:

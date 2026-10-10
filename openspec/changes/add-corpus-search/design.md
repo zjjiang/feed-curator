@@ -38,12 +38,12 @@ OpenClaw 将经 MCP 以自然语言问题检索 feed-curator 语料。语料约 
 - 检索词同时匹配 owner/name（repo 的 `owner/name` 形态查询按原样保留为一个 token 处理，避免被 jieba 切碎）。
 - 结果片段（snippet）不做索引内高亮：命中后回 MySQL 取 content_text，Python 侧定位首个查询词位置、切前后文各 ~120 字窗口。查询词在预览截断之外命中时，片段回退到正文开头。
 
-**D3. 索引生命周期：写后全量重建**
+**D3. 索引生命周期：脏标记 + 检索时重建**
 
 - 索引文件落盘 `data/search_index/`（bm25s 的 save 格式 + doc_id 顺序表），属派生数据，可随时删除重建，不入 MySQL。
-- 触发点：fetcher 一次 fetch_source 批量写入完成后重建一次（不逐文档重建）；manual_service.save_url 完成后重建；fulltext_backfill / repo README 回填批次完成后重建。重建耗时秒级，且都在请求/任务尾部异步感不强的位置。
-- 进程内持有已加载索引单例；首次检索时若文件缺失则自动重建（自愈）。锁：重建期间检索返回旧索引（原子替换加载），用简单 threading.Lock 保护加载/替换。
-- 不引入增量更新：3k 语料下全量重建的一致性故事最简单，增量倒排删除是复杂度陷阱。
+- 写入侧钩子（fetcher 批后 / save_url 后 / fulltext 与 README 回填批后）只 `mark_dirty()`，零开销；真正的全量重建推迟到下一次检索前（`maybe_rebuild` 见脏即重建），管道抓取风暴下不会反复白建索引，且保证 spec 的「写入完成后即可检索」。
+- 停用词：内置最小虚词兜底集（写死会造成全员误命中的「的/了/在」级 token），可用 `data/search_stopwords.txt`（每行一词，# 注释）追加。
+- 进程内持有已加载索引单例，threading.Lock 保护加载/替换；不引入增量更新——3k 语料下全量重建的一致性故事最简单，增量倒排删除是复杂度陷阱。
 
 **D4. MCP 工具签名**
 

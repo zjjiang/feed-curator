@@ -5,9 +5,11 @@ requires-python = ">=3.14"
 dependencies = [
     "apscheduler>=3.11.2",
     "beautifulsoup4>=4.14.3",
+    "bm25s>=0.3.13",
     "fastapi>=0.136.3",
     "feedparser>=6.0.12",
     "httpx>=0.28.1",
+    "jieba>=0.42.1",
     "jinja2>=3.1.6",
     "lxml>=6.1.1",
     "mcp[cli]",
@@ -27,3 +29,6 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[[tool.uv.index]]
+url = "https://pypi.org/simple"

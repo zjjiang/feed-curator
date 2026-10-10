@@ -7,12 +7,12 @@
 
 ## 2. 检索索引模块（TDD）
 
-- [ ] 2.1 新增依赖 jieba、bm25s（uv add），在 Python 3.14 环境验证导入
-- [ ] 2.2 先写测试：中文分词 + 索引构建 + 查询命中（in-memory SQLite 夹具造 3 类实体文档），RED → GREEN
-- [ ] 2.3 实现 `app/services/search_index.py`：字段组装（title + 各实体内容预览 4000 字）、jieba 分词、bm25s 建索引、save/load（`data/search_index/`）、doc_id 顺序表
-- [ ] 2.4 实现查询入口：查询词分词同构、BM25 top-K、owner/name 形态 token 保留
-- [ ] 2.5 索引生命周期：写后全量重建钩子（fetcher 批后 / save_url 后 / 回填批后）、单例加载 + threading.Lock 原子替换、文件缺失自愈重建、重建失败不影响写入
-- [ ] 2.6 边界测试：空查询、纯空白查询、索引缺失/损坏、长文档截断、空语料
+- [x] 2.1 新增依赖 jieba、bm25s（uv add），在 Python 3.14 环境验证导入
+- [x] 2.2 先写测试：中文分词 + 索引构建 + 查询命中（in-memory SQLite 夹具造 3 类实体文档），RED → GREEN
+- [x] 2.3 实现 `app/services/search_index.py`：字段组装（title + 各实体内容预览 4000 字）、jieba 分词、bm25s 建索引、save/load（`data/search_index/`）、doc_id 顺序表
+- [x] 2.4 实现查询入口：查询词分词同构、BM25 top-K、owner/name 形态 token 保留
+- [x] 2.5 索引生命周期：写后全量重建钩子（fetcher 批后 / save_url 后 / 回填批后）、单例加载 + threading.Lock 原子替换、文件缺失自愈重建、重建失败不影响写入
+- [x] 2.6 边界测试：空查询、纯空白查询、索引缺失/损坏、长文档截断、空语料
 
 ## 3. 检索服务与片段（TDD）
 
