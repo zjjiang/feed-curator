@@ -75,3 +75,42 @@ def test_simonwillison_anchor_duplicates_merge():
     assert normalize_url(
         "https://simonwillison.net/2026/Jun/11/fable-is-relentlessly-proactive/#atom-everything"
     ) == normalize_url("https://simonwillison.net/2026/Jun/11/fable-is-relentlessly-proactive/")
+
+
+# ---- 微信链接:host 级身份参数特例 ----
+
+def test_wechat_share_param_variants_merge():
+    # 同一篇文章两次分享:每分享参数(chksm/scene)不同、参数顺序也不同,
+    # 归一化后必须视为同一 url_key
+    a = ("https://mp.weixin.qq.com/s?__biz=MzA3MDM3NjE5Nw==&mid=2650984123"
+         "&idx=1&sn=abc123&chksm=e1&scene=21#wechat_redirect")
+    b = ("https://mp.weixin.qq.com/s?scene=126&sn=abc123&idx=1&mid=2650984123"
+         "&__biz=MzA3MDM3NjE5Nw==&chksm=e9")
+    assert normalize_url(a) == normalize_url(b)
+
+
+def test_wechat_share_params_are_dropped_from_key():
+    key = normalize_url(
+        "https://mp.weixin.qq.com/s?__biz=A&mid=1&idx=1&sn=abc&chksm=x&scene=21")
+    assert "chksm" not in key and "scene" not in key
+
+
+def test_wechat_identity_param_differs_not_merged():
+    base = "https://mp.weixin.qq.com/s?__biz=A&mid=1&idx=1&sn={}"
+    a = normalize_url(base.format("aaa"))
+    b = normalize_url(base.format("bbb"))
+    assert a != b
+    # mid / __biz 任一不同同样不归并
+    assert normalize_url("https://mp.weixin.qq.com/s?__biz=A&mid=2&idx=1&sn=aaa") != a
+    assert normalize_url("https://mp.weixin.qq.com/s?__biz=B&mid=1&idx=1&sn=aaa") != a
+
+
+def test_wechat_short_link_without_query_unchanged():
+    assert normalize_url(
+        "https://mp.weixin.qq.com/s/abcDEF123") == "https://mp.weixin.qq.com/s/abcDEF123"
+
+
+def test_non_wechat_host_keeps_unknown_params():
+    # 特例只作用于 mp.weixin.qq.com,其他 host 的白名单行为不变
+    assert normalize_url(
+        "https://example.com/post?chksm=abc") == "https://example.com/post?chksm=abc"
