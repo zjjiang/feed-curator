@@ -16,6 +16,6 @@
 
 ## 4. 归档与发布
 
-- [ ] 4.1 归档 change,主 specs 删除 `study-workbench/` 目录,`openspec validate` 通过、活跃 change 清零
-- [ ] 4.2 重启服务冒烟:`/study` 404、`/` 与 `/admin` 200、`POST /api/docs/{id}/reading` 可写
-- [ ] 4.3 提交推分支开 PR,等用户 review 合并
+- [x] 4.1 归档 change,主 specs 删除 `study-workbench/` 目录,`openspec validate` 通过、活跃 change 清零
+- [x] 4.2 重启服务冒烟:`/study` 404、`/` 与 `/admin` 200、`POST /api/docs/{id}/reading` 可写(实测 {"ok":true})
+- [x] 4.3 提交推分支开 PR,等用户 review 合并
