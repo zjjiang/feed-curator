@@ -604,7 +604,11 @@ def ops_page(request: Request, db: Session = Depends(get_session)):
         "run_rows": run_rows,
         "index_stats": idx_stats,
         "index_uncovered": idx_stats["uncovered"][:20],
-        "index_built_fmt": _fmt_time(idx_stats["built_at"]) if idx_stats["built_at"] else "-",
+        # 索引重建跨天才有意义,始终带日期,不走相对时间的 _fmt_time
+        "index_built_fmt": (
+            datetime.fromtimestamp(idx_stats["built_at"]).strftime("%m-%d %H:%M")
+            if idx_stats["built_at"] else "-"
+        ),
     })
 
 
