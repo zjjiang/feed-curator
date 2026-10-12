@@ -29,7 +29,7 @@ feed-curator 是语料供给方(采集 → 判定 → 检索),消费方是 `~/Pr
 
 ```bash
 uv sync                                    # install deps (Python 3.14+)
-uv run pytest                              # test suite (150 tests, in-memory SQLite)
+uv run pytest                              # test suite (451 tests, in-memory SQLite)
 uv run pytest --cov=app                    # coverage (threshold: 80%)
 ```
 
