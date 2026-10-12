@@ -11,3 +11,4 @@ data/*.db.bak-*
 data/workbench.html
 data/search_index/
 data/search_stopwords.txt
+data/server.log
