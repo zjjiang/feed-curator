@@ -21,6 +21,7 @@ from app.models import (Analysis, Article, Doc, Domain, Membership, Pipe,
                         Reading, Repo, RunLog)
 from app.services.stats_service import PRESET_DAYS, collect_stats, parse_window
 from app.utils.json_str import json_dump
+from app.services.doc_query import latest_ok_analysis_ids as _latest_ok_analysis_ids
 
 templates = Jinja2Templates(directory="app/web/templates")
 router = APIRouter()
@@ -67,15 +68,6 @@ def _domain_map(db: Session) -> dict[int, str]:
 # ============ 订阅(首页) ============
 
 
-def _latest_ok_analysis_ids(db: Session):
-    """每篇文档最新一条 ok 判定的 analysis.id。"""
-    latest = (
-        db.query(Analysis.doc_id, func.max(Analysis.id).label("aid"))
-        .filter(Analysis.status == "ok")
-        .group_by(Analysis.doc_id)
-        .subquery()
-    )
-    return latest
 
 
 @router.get("/", response_class=HTMLResponse)

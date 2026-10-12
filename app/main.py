@@ -18,6 +18,7 @@ from app.jobs.runner import cancel_analyze, start_analyze_job
 from app.models import (Analysis, Article, Discovery, Doc, Domain, DocumentLink,
                         Membership, Paper, Pipe, Reading, Repo, RunLog)
 from app.utils.json_str import json_dump
+from app.services.doc_query import latest_ok_analysis_ids
 from app.web.pages import router as web_router
 from app.mcp_server import mcp
 
@@ -197,13 +198,26 @@ def list_docs_api(
     kind_tag: str | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    sort: str = Query("time", pattern="^(time|stars)$"),
+    min_stars: int | None = Query(None, ge=1, le=5),
     db: Session = Depends(get_session),
 ):
     query, _ = _docs_query(db, domain_id=domain_id, kind=kind, kind_tag=kind_tag)
+    if min_stars is not None or sort == "stars":
+        latest = latest_ok_analysis_ids(db)
+        query = query.outerjoin(latest, latest.c.doc_id == Doc.id) \
+            .outerjoin(Analysis, Analysis.id == latest.c.aid)
+        if min_stars is not None:
+            # 门槛即门槛:未判定(无有效 analysis)一并排除
+            query = query.filter(Analysis.stars >= min_stars)
     total = query.count()
     # sort_time 可空;DESC 下 SQLite 与 MySQL 都把 NULL 排在末尾,无需 NULLS LAST
-    docs = query.order_by(Doc.sort_time.desc(), Doc.id.desc()) \
-        .offset(offset).limit(limit).all()
+    if sort == "stars":
+        query = query.order_by(func.coalesce(Analysis.stars, 0).desc(),
+                               Doc.sort_time.desc(), Doc.id.desc())
+    else:
+        query = query.order_by(Doc.sort_time.desc(), Doc.id.desc())
+    docs = query.offset(offset).limit(limit).all()
     return {"total": total, "docs": [_doc_dict(db, d) for d in docs]}
 
 
