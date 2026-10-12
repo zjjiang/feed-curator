@@ -8,6 +8,10 @@ AI-driven personal reading pipeline. Pulls content from RSS/WeChat/arXiv pipes i
 
 The 2026-09 rebuild (`openspec/changes/rebuild-domain-model/`) replaced the old flat `Source`/`Item` tables with a class-table-inheritance model (`doc` identity layer + `paper`/`repo`/`article` entity tables), replaced free-text categories with `domain` (AI picks domains per doc), and renamed sources to `pipe` (shared vs domain-derived). The old SQLite database was migrated and deleted; the only rollback is `data/feed-curator.db.bak-20260923`.
 
+## Cross-system boundary (deputy)
+
+feed-curator 是语料供给方(采集 → 判定 → 检索),消费方是 `~/Projects/deputy`(参谋部:作战处/军情处/讲武堂),经 OpenClaw agent 以 MCP(`search_docs`/`get_doc`)与 REST(`/api/docs`)中转。**状态跟着实体走**:`answers.status`(奏折已阅)、`point.status`(课程掌握)归 deputy;原文已读/收藏/评分归本库 `reading` 表,**永不搬进 deputy**——跨系统需要信号时由 agent 取数,不迁移状态。
+
 ## Workflow rules
 
 - **Development goes through OpenSpec.** Non-trivial work starts as an OpenSpec
