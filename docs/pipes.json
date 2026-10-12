@@ -1,99 +1,7 @@
 {
   "version": 1,
-  "exported_at": 1791798866,
+  "exported_at": 1791819878,
   "pipes": [
-    {
-      "type": "arxiv",
-      "name": "arXiv cs.AI",
-      "config": {
-        "category": "cs.AI",
-        "max_results": 20
-      },
-      "domain": null,
-      "enabled": 0,
-      "fetch_interval_min": 360,
-      "category": "论文与研究"
-    },
-    {
-      "type": "arxiv",
-      "name": "arXiv cs.RO",
-      "config": {
-        "category": "cs.RO",
-        "max_results": 50
-      },
-      "domain": null,
-      "enabled": 0,
-      "fetch_interval_min": 360,
-      "category": "论文与研究"
-    },
-    {
-      "type": "arxiv",
-      "name": "具身智能·arXiv 派生 A",
-      "config": {
-        "category": "cs.AI",
-        "max_results": 30
-      },
-      "domain": "具身智能",
-      "enabled": 1,
-      "fetch_interval_min": 240,
-      "category": "论文与研究"
-    },
-    {
-      "type": "arxiv",
-      "name": "具身智能·arXiv 派生 B",
-      "config": {
-        "category": "cs.AI",
-        "max_results": 30
-      },
-      "domain": "具身智能",
-      "enabled": 1,
-      "fetch_interval_min": 240,
-      "category": "论文与研究"
-    },
-    {
-      "type": "github",
-      "name": "VLA / Robot Learning",
-      "config": {
-        "query": "robot learning VLA",
-        "min_stars": 10,
-        "max_results": 50
-      },
-      "domain": "具身智能",
-      "enabled": 0,
-      "fetch_interval_min": 360,
-      "category": "开发者与独立博客"
-    },
-    {
-      "type": "github",
-      "name": "具身开源项目",
-      "config": {
-        "query": "embodied ai",
-        "min_stars": 20,
-        "max_results": 50
-      },
-      "domain": "具身智能",
-      "enabled": 0,
-      "fetch_interval_min": 360,
-      "category": "开发者与独立博客"
-    },
-    {
-      "type": "github",
-      "name": "具身智能GitHub",
-      "config": {},
-      "domain": "具身智能",
-      "enabled": 1,
-      "fetch_interval_min": 360,
-      "category": "开发者与独立博客"
-    },
-    {
-      "type": "hf_papers",
-      "name": "HF Daily Papers",
-      "config": {},
-      "domain": null,
-      "enabled": 1,
-      "fetch_interval_min": 360,
-      "category": "论文与研究"
-    },
     {
       "type": "manual",
       "name": "手工存入",
@@ -107,7 +15,7 @@
       "type": "rss",
       "name": "36氪",
       "config": {
-        "feed_url": "https://36kr.com/feed"
+        "feed_url": "http://127.0.0.1:9002/36kr/news/latest"
       },
       "domain": null,
       "enabled": 1,
@@ -116,14 +24,168 @@
     },
     {
       "type": "rss",
-      "name": "Hacker News",
+      "name": "Anthropic News",
       "config": {
-        "feed_url": "https://hnrss.org/frontpage"
+        "feed_url": "http://127.0.0.1:9002/anthropic/news"
       },
       "domain": null,
       "enabled": 1,
-      "fetch_interval_min": 15,
+      "fetch_interval_min": 180,
+      "category": "厂商官方"
+    },
+    {
+      "type": "rss",
+      "name": "Ars Technica",
+      "config": {
+        "feed_url": "https://feeds.arstechnica.com/arstechnica/index"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 60,
       "category": "科技媒体"
+    },
+    {
+      "type": "rss",
+      "name": "BAIR Berkeley",
+      "config": {
+        "feed_url": "https://bair.berkeley.edu/blog/feed.xml"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 360,
+      "category": "论文与研究"
+    },
+    {
+      "type": "rss",
+      "name": "GitHub Blog",
+      "config": {
+        "feed_url": "https://github.blog/feed/"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 180,
+      "category": "开发者与独立博客"
+    },
+    {
+      "type": "rss",
+      "name": "GitHub Trending",
+      "config": {
+        "feed_url": "http://127.0.0.1:9002/github/trending/daily/any"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 180,
+      "category": "开发者与独立博客"
+    },
+    {
+      "type": "rss",
+      "name": "Google DeepMind",
+      "config": {
+        "feed_url": "https://deepmind.google/blog/rss.xml"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 180,
+      "category": "论文与研究"
+    },
+    {
+      "type": "rss",
+      "name": "Google Research",
+      "config": {
+        "feed_url": "https://research.google/blog/rss/"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 180,
+      "category": "论文与研究"
+    },
+    {
+      "type": "rss",
+      "name": "Hacker News 最佳",
+      "config": {
+        "feed_url": "http://127.0.0.1:9002/hackernews/best"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 60,
+      "category": "开发者与独立博客"
+    },
+    {
+      "type": "rss",
+      "name": "HuggingFace Blog",
+      "config": {
+        "feed_url": "https://huggingface.co/blog/feed.xml"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 180,
+      "category": "厂商官方"
+    },
+    {
+      "type": "rss",
+      "name": "HuggingFace 每日论文",
+      "config": {
+        "feed_url": "http://127.0.0.1:9002/huggingface/daily-papers"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 180,
+      "category": "论文与研究"
+    },
+    {
+      "type": "rss",
+      "name": "InfoQ 推荐",
+      "config": {
+        "feed_url": "http://127.0.0.1:9002/infoq/recommend"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 120,
+      "category": "科技媒体"
+    },
+    {
+      "type": "rss",
+      "name": "Lobsters",
+      "config": {
+        "feed_url": "https://lobste.rs/rss"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 60,
+      "category": "开发者与独立博客"
+    },
+    {
+      "type": "rss",
+      "name": "Microsoft Research",
+      "config": {
+        "feed_url": "https://www.microsoft.com/en-us/research/feed/"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 180,
+      "category": "论文与研究"
+    },
+    {
+      "type": "rss",
+      "name": "MIT Tech Review",
+      "config": {
+        "feed_url": "https://www.technologyreview.com/feed/"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 120,
+      "category": "科技媒体"
+    },
+    {
+      "type": "rss",
+      "name": "OpenAI News",
+      "config": {
+        "feed_url": "https://openai.com/news/rss.xml"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 180,
+      "category": "厂商官方"
     },
     {
       "type": "rss",
@@ -133,36 +195,47 @@
       },
       "domain": null,
       "enabled": 1,
-      "fetch_interval_min": 60,
+      "fetch_interval_min": 120,
       "category": "开发者与独立博客"
     },
     {
       "type": "rss",
-      "name": "机器之心",
+      "name": "TechCrunch",
       "config": {
-        "feed_url": "https://www.jiqizhixin.com/rss"
-      },
-      "domain": null,
-      "enabled": 0,
-      "fetch_interval_min": 30,
-      "category": "科技媒体"
-    },
-    {
-      "type": "rss",
-      "name": "爱范儿",
-      "config": {
-        "feed_url": "https://www.ifanr.com/feed"
+        "feed_url": "https://techcrunch.com/feed/"
       },
       "domain": null,
       "enabled": 1,
       "fetch_interval_min": 60,
+      "category": "科技媒体"
+    },
+    {
+      "type": "rss",
+      "name": "The Verge",
+      "config": {
+        "feed_url": "https://www.theverge.com/rss/index.xml"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 60,
+      "category": "科技媒体"
+    },
+    {
+      "type": "rss",
+      "name": "少数派 Matrix",
+      "config": {
+        "feed_url": "http://127.0.0.1:9002/sspai/matrix"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 120,
       "category": "科技媒体"
     },
     {
       "type": "rss",
       "name": "虎嗅",
       "config": {
-        "feed_url": "http://localhost:1200/huxiu/article"
+        "feed_url": "http://127.0.0.1:9002/huxiu/article"
       },
       "domain": null,
       "enabled": 1,
@@ -170,37 +243,171 @@
       "category": "科技媒体"
     },
     {
-      "type": "rss",
-      "name": "钛媒体",
+      "type": "wechat",
+      "name": "AI工程化",
       "config": {
-        "feed_url": "https://www.tmtpost.com/rss.xml"
-      },
-      "domain": null,
-      "enabled": 1,
-      "fetch_interval_min": 30,
-      "category": "科技媒体"
-    },
-    {
-      "type": "rss",
-      "name": "阮一峰的网络日志",
-      "config": {
-        "feed_url": "https://www.ruanyifeng.com/blog/atom.xml"
+        "mp_id": "MP_WXS_3091215681",
+        "wewe_base_url": "http://127.0.0.1:9001"
       },
       "domain": null,
       "enabled": 1,
       "fetch_interval_min": 60,
-      "category": "科技媒体"
+      "category": "微信公众号"
+    },
+    {
+      "type": "wechat",
+      "name": "AI数据标注猿",
+      "config": {
+        "mp_id": "MP_WXS_3235950769",
+        "wewe_base_url": "http://127.0.0.1:9001"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 60,
+      "category": "微信公众号"
     },
     {
       "type": "wechat",
       "name": "AI组织进化论",
       "config": {
         "mp_id": "MP_WXS_3585795950",
-        "wewe_base_url": "http://localhost:9001"
+        "wewe_base_url": "http://127.0.0.1:9001"
       },
       "domain": null,
       "enabled": 1,
-      "fetch_interval_min": 30,
+      "fetch_interval_min": 60,
+      "category": "微信公众号"
+    },
+    {
+      "type": "wechat",
+      "name": "CSDN",
+      "config": {
+        "mp_id": "MP_WXS_3930654829",
+        "wewe_base_url": "http://127.0.0.1:9001"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 60,
+      "category": "微信公众号"
+    },
+    {
+      "type": "wechat",
+      "name": "human five",
+      "config": {
+        "mp_id": "MP_WXS_3893878104",
+        "wewe_base_url": "http://127.0.0.1:9001"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 60,
+      "category": "微信公众号"
+    },
+    {
+      "type": "wechat",
+      "name": "InfoQ",
+      "config": {
+        "mp_id": "MP_WXS_2390142780",
+        "wewe_base_url": "http://127.0.0.1:9001"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 60,
+      "category": "微信公众号"
+    },
+    {
+      "type": "wechat",
+      "name": "克劳德猎手",
+      "config": {
+        "mp_id": "MP_WXS_3935644082",
+        "wewe_base_url": "http://127.0.0.1:9001"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 60,
+      "category": "微信公众号"
+    },
+    {
+      "type": "wechat",
+      "name": "具身智能研究室",
+      "config": {
+        "mp_id": "MP_WXS_3892772097",
+        "wewe_base_url": "http://127.0.0.1:9001"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 60,
+      "category": "微信公众号"
+    },
+    {
+      "type": "wechat",
+      "name": "新智元",
+      "config": {
+        "mp_id": "MP_WXS_3271041950",
+        "wewe_base_url": "http://127.0.0.1:9001"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 60,
+      "category": "微信公众号"
+    },
+    {
+      "type": "wechat",
+      "name": "机器之心",
+      "config": {
+        "mp_id": "MP_WXS_3073282833",
+        "wewe_base_url": "http://127.0.0.1:9001"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 60,
+      "category": "微信公众号"
+    },
+    {
+      "type": "wechat",
+      "name": "百度智能云技术站",
+      "config": {
+        "mp_id": "MP_WXS_3919381376",
+        "wewe_base_url": "http://127.0.0.1:9001"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 60,
+      "category": "微信公众号"
+    },
+    {
+      "type": "wechat",
+      "name": "硅谷101",
+      "config": {
+        "mp_id": "MP_WXS_3086505248",
+        "wewe_base_url": "http://127.0.0.1:9001"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 60,
+      "category": "微信公众号"
+    },
+    {
+      "type": "wechat",
+      "name": "程序猿",
+      "config": {
+        "mp_id": "MP_WXS_2397051720",
+        "wewe_base_url": "http://127.0.0.1:9001"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 60,
+      "category": "微信公众号"
+    },
+    {
+      "type": "wechat",
+      "name": "量子位",
+      "config": {
+        "mp_id": "MP_WXS_3236757533",
+        "wewe_base_url": "http://127.0.0.1:9001"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 60,
       "category": "微信公众号"
     }
   ]
