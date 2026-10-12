@@ -382,3 +382,45 @@ class TestPipeImportRoute:
         r = client.post("/admin/pipes/import", data={"payload": "not json"},
                         follow_redirects=False)
         assert r.status_code == 303 and "error=import" in r.headers["location"]
+
+
+class TestDocsStarSort:
+    def test_sort_stars_descends_unrated_last(self, client, db_session):
+        _doc(db_session, url="https://e.com/5", title="五星", stars=5)
+        _doc(db_session, url="https://e.com/4", title="四星", stars=4)
+        _doc(db_session, url="https://e.com/0", title="未判定")
+        body = client.get("/api/docs?sort=stars").json()
+        assert [d["title"] for d in body["docs"]] == ["五星", "四星", "未判定"]
+
+    def test_min_stars_filters_unrated_and_below(self, client, db_session):
+        _doc(db_session, url="https://e.com/5", title="五星", stars=5)
+        _doc(db_session, url="https://e.com/3", title="三星", stars=3)
+        _doc(db_session, url="https://e.com/0", title="未判定")
+        body = client.get("/api/docs?min_stars=4").json()
+        assert [d["title"] for d in body["docs"]] == ["五星"]
+        assert body["total"] == 1
+
+    def test_min_stars_combined_with_domain(self, client, db_session):
+        d5 = _doc(db_session, url="https://e.com/5", title="五星", stars=5)
+        d3 = _doc(db_session, url="https://e.com/3", title="三星", stars=3)
+        from app.models import Domain, Membership
+        dom = Domain(name="具身智能", created_at=NOW, updated_at=NOW)
+        db_session.add(dom)
+        db_session.flush()
+        for d in (d5, d3):
+            db_session.add(Membership(doc_id=d.id, domain_id=dom.id, assigned_by="manual", created_at=NOW))
+        db_session.commit()
+        body = client.get(f"/api/docs?min_stars=4&domain_id={dom.id}").json()
+        assert [d["title"] for d in body["docs"]] == ["五星"]
+
+    def test_param_validation(self, client):
+        assert client.get("/api/docs?min_stars=0").status_code == 422
+        assert client.get("/api/docs?min_stars=6").status_code == 422
+        assert client.get("/api/docs?sort=bad").status_code == 422
+
+    def test_default_regression_time_order(self, client, db_session):
+        """不传新参数 = 现状行为：time 序（同 sort_time 按 id 降序）。"""
+        _doc(db_session, url="https://e.com/1", title="先入库")
+        _doc(db_session, url="https://e.com/2", title="后入库")
+        body = client.get("/api/docs").json()
+        assert [d["title"] for d in body["docs"]] == ["后入库", "先入库"]
