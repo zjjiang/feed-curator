@@ -256,9 +256,17 @@ def _doc_dict(db: Session, doc: Doc) -> dict:
         .all()
     ]
     kind_tag = None
+    gh_stars = None
+    gh_stars_gained = None
     if doc.kind == "article":
         article = db.get(Article, doc.id)
         kind_tag = article.kind_tag if article else None
+    elif doc.kind == "repo":
+        from app.models import Repo
+        repo = db.get(Repo, doc.id)
+        if repo:
+            gh_stars = repo.stars
+            gh_stars_gained = repo.stars_gained
     return {
         "id": doc.id,
         "kind": doc.kind,
@@ -266,6 +274,8 @@ def _doc_dict(db: Session, doc: Doc) -> dict:
         "url": doc.url,
         "sort_time": doc.sort_time,
         "kind_tag": kind_tag,
+        "gh_stars": gh_stars,
+        "gh_stars_gained": gh_stars_gained,
         "domains": domains,
         "stars": analysis.stars if analysis else None,
         "summary": analysis.summary if analysis else None,
@@ -488,6 +498,20 @@ def stats(db: Session = Depends(get_session)):
         "articles_fulltext_total": articles,
         "orphan_docs": _orphan_count(db),
     }
+
+
+@app.get("/api/admin/stats")
+def admin_stats_api(
+    days: str | None = Query(None),
+    start: str | None = Query(None),
+    end: str | None = Query(None),
+    db: Session = Depends(get_session),
+):
+    """窗口统计 JSON 导出：与 /admin/stats 页面同源同口径（collect_stats）。"""
+    from app.services.stats_service import collect_stats, parse_window
+
+    start_ts, end_ts = parse_window(days, start, end)
+    return collect_stats(db, start_ts, end_ts)
 
 
 def _orphan_count(db: Session) -> int:
