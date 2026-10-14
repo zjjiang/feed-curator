@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exported_at": 1791906290,
+  "exported_at": 1791992714,
   "pipes": [
     {
       "type": "manual",
@@ -331,6 +331,18 @@
       "name": "具身智能研究室",
       "config": {
         "mp_id": "MP_WXS_3892772097",
+        "wewe_base_url": "http://127.0.0.1:9001"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 60,
+      "category": "微信公众号"
+    },
+    {
+      "type": "wechat",
+      "name": "天南具身公园",
+      "config": {
+        "mp_id": "MP_WXS_3703010140",
         "wewe_base_url": "http://127.0.0.1:9001"
       },
       "domain": null,
