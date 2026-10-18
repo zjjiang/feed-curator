@@ -87,6 +87,19 @@ def upsert_doc(
         db.add(Discovery(pipe_id=pipe_id, external_id=external_id,
                          doc_id=doc.id, first_seen_at=now))
         db.commit()
+    except IntegrityError:
+        # 并发或历史残留:discovery (pipe_id, external_id) 已存在 → 幂等返回已有状态,
+        # 不再抛错刷 last_error(检修发现:重复抓取同 URL 会撞 uq_discovery_pipe_external)
+        db.rollback()
+        seen_doc = (
+            db.query(Doc)
+            .join(Discovery, Discovery.doc_id == Doc.id)
+            .filter(Discovery.pipe_id == pipe_id, Discovery.external_id == external_id)
+            .first()
+        )
+        if seen_doc is not None:
+            return UpsertResult(seen_doc.id, False, False)
+        raise
     except Exception:
         db.rollback()
         raise
