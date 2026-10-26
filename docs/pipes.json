@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exported_at": 1792951767,
+  "exported_at": 1793038167,
   "pipes": [
     {
       "type": "manual",
@@ -355,6 +355,18 @@
       "name": "新智元",
       "config": {
         "mp_id": "MP_WXS_3271041950",
+        "wewe_base_url": "http://127.0.0.1:9001"
+      },
+      "domain": null,
+      "enabled": 1,
+      "fetch_interval_min": 60,
+      "category": "微信公众号"
+    },
+    {
+      "type": "wechat",
+      "name": "新智驾",
+      "config": {
+        "mp_id": "MP_WXS_3016996237",
         "wewe_base_url": "http://127.0.0.1:9001"
       },
       "domain": null,
