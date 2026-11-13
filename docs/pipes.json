@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exported_at": 1794420630,
+  "exported_at": 1794593032,
   "pipes": [
     {
       "type": "manual",
@@ -29,7 +29,7 @@
         "feed_url": "http://127.0.0.1:9002/anthropic/news"
       },
       "domain": null,
-      "enabled": 1,
+      "enabled": 0,
       "fetch_interval_min": 180,
       "category": "厂商官方"
     },
